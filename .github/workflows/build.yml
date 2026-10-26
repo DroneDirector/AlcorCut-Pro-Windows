@@ -14,15 +14,24 @@ jobs:
     env:
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - name: Build installer
         shell: bash
-        run: ./gradlew --no-daemon packageReleaseMsi packageReleaseExe
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon packageReleaseMsi packageReleaseExe 2>&1 | tee build.log
+      - name: Report build problems
+        if: failure()
+        shell: bash
+        run: |
+          grep -E "^e: |What went wrong|error:|Exception|> " build.log | head -120 > problems.txt || true
+          msg=$(sed -e 's/%/%25/g' problems.txt | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build problems::${msg}"
       - name: Rename
         shell: bash
         run: |
@@ -44,8 +53,8 @@ jobs:
   classpath:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
