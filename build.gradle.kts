@@ -50,6 +50,6 @@ compose.desktop {
 
 /** Dependency jars for compile checks outside CI. */
 tasks.register<Copy>("exportClasspath") {
-    from(configurations.runtimeClasspath)
+    from(configurations.compileClasspath)
     into(layout.buildDirectory.dir("classpath"))
 }

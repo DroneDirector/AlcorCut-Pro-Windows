@@ -51,8 +51,13 @@ jobs:
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew --no-daemon exportClasspath
-      - uses: actions/upload-artifact@v4
-        with:
-          name: classpath
-          path: build/classpath/*
-          retention-days: 30
+      - name: Keep compile jars on a side branch
+        run: |
+          cd build/classpath
+          rm -f skiko-awt-runtime-*.jar
+          git init -q -b classpath
+          git config user.name "DroneDirector"
+          git config user.email "simon@dronedirector.fo"
+          git add -A
+          git commit -qm "Compile jars"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" classpath
