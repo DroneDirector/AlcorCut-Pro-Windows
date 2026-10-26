@@ -19,7 +19,7 @@ object SaveFolder {
         Storage.load(context, area(video)).takeIf { Storage.isTree(it) }?.let { Uri.parse(it.removePrefix("tree:")) }
 
     fun label(tree: Uri?): String {
-        if (tree == null) return "DCIM/AlcorCutPro"
+        if (tree == null) return "Pictures\\AlcorCut Pro"
         return try {
             val id = DocumentsContract.getTreeDocumentId(tree)
             val (vol, path) = id.split(":", limit = 2).let { it[0] to it.getOrElse(1) { "" } }

@@ -2879,7 +2879,7 @@ private fun PhotoPanelContent(
             Chips(listOf("Full (≤4800)", "4096", "2560", "1920", "Instagram 1080", "Web 2048", "4K 3840", "Original (full resolution)"), exportState.sizeIdx) { onExportState(exportState.format, exportState.quality, it) }
             if (exportState.sizeIdx == 7) Text("The photo's own full size, as big as the sensor or file goes. Always saved at that size, however heavy the edit.", color = Pro.Dim, fontSize = 11.sp)
             aiUpscale()
-            Text("Exports a new picture to DCIM/AlcorCutPro; the original stays untouched.", color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(vertical = 8.dp))
+            Text("Exports a new picture to Pictures\\AlcorCut Pro; the original stays untouched.", color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(vertical = 8.dp))
             Text(
                 if (busy) "EXPORTING…" else "EXPORT PHOTO",
                 style = Pro.Value.copy(color = Color.Black, fontSize = 14.sp),

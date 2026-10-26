@@ -109,3 +109,13 @@ copy ui/UprightThumb.kt
 copy ui/KeepSettings.kt
 take ui/Monitor.kt MonitorClass monitorClass
 take ui/Scopes.kt ScopeMath
+
+# Windows wording (tools/edits)
+edit editor/PhotoEditor.kt PhotoEditor.py
+edit editor/SaveFolder.kt SaveFolder.py
+
+# Translations and bundled data
+asset i18n/da.json
+asset i18n/fo.json
+asset world_land.bin
+swap ui/Licenses.kt NOTICES Licenses.windows.kt

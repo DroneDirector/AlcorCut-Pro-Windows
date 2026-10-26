@@ -11,6 +11,8 @@ tools/sync.txt lists what comes over:
   drop <file> <member> [...]      remove member functions (by name) from a file already brought over,
                                   where they only serve the phone (e.g. video parts of a photo tool)
   edit <file> <python file>       after copying, apply replacements from tools/edits/<python file>
+  swap <file> <Name> <text file>  replace one top-level declaration with tools/edits/<text file>
+  asset <file>                    copy a bundled file from the app's assets into src/main/resources
 Files written by this tool start from the Android version every time, so changes belong in
 tools/edits, never in the copied files.
 """
@@ -113,12 +115,26 @@ def main():
             continue
         parts = line.split()
         cmd, f = parts[0], parts[1]
+        if cmd == 'asset':
+            import shutil
+            dst = os.path.join(ROOT, 'src/main/resources', f)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(os.path.join(sys.argv[1], 'app/src/main/assets', f), dst)
+            continue
         src = os.path.join(android, f)
         dst = os.path.join(SRC, f)
         if cmd == 'copy':
             text = open(src, encoding='utf-8').read()
         elif cmd == 'take':
             text = take(open(src, encoding='utf-8').read(), parts[2:])
+        elif cmd == 'swap':
+            text = open(dst, encoding='utf-8').read()
+            lines, blocks = top_blocks(text)
+            if parts[2] not in blocks:
+                sys.exit('swap: %s not found' % parts[2])
+            s0, e0 = blocks[parts[2]][0]
+            repl = open(os.path.join(edits_dir, parts[3]), encoding='utf-8').read().rstrip('\n').split('\n')
+            text = '\n'.join(lines[:s0] + repl + lines[e0:])
         elif cmd == 'drop':
             text = drop(open(dst, encoding='utf-8').read(), parts[2:])
         elif cmd == 'edit':
