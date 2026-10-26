@@ -59,7 +59,16 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew --no-daemon exportClasspath
+      - name: Export jars
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon exportClasspath 2>&1 | tee build.log
+      - name: Report problems
+        if: failure()
+        run: |
+          grep -E "^e: |What went wrong|error:|Exception|> |Could not" build.log | head -60 > problems.txt || true
+          msg=$(sed -e 's/%/%25/g' problems.txt | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build problems::${msg}"
       - name: Keep compile jars on a side branch
         run: |
           cd build/classpath
