@@ -72,7 +72,7 @@ jobs:
       - name: Keep compile jars on a side branch
         run: |
           cd build/classpath
-          rm -f skiko-awt-runtime-*.jar
+          rm -f *skiko-awt-runtime-*.jar
           ls -R | head -80
           git init -q -b classpath
           git config user.name "DroneDirector"
