@@ -31,6 +31,8 @@ compose.desktop {
     application {
         mainClass = "com.dronedirector.veyrocutpro.MainKt"
         jvmArgs += listOf("-Xmx8g", "-Dfile.encoding=UTF-8", "-Dsun.java2d.d3d=true")
+        // The app's code is kept as is (no shrinking), so nothing is lost at run time.
+        buildTypes.release.proguard { isEnabled.set(false) }
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "AlcorCut Pro"
