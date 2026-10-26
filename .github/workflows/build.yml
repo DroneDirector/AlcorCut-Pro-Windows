@@ -1,0 +1,58 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build installer
+        shell: bash
+        run: ./gradlew --no-daemon packageReleaseMsi packageReleaseExe
+      - name: Rename
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp build/compose/binaries/main-release/msi/*.msi "dist/AlcorCutPro-Windows-1.0.${BUILD_NUMBER}.msi"
+          cp build/compose/binaries/main-release/exe/*.exe "dist/AlcorCutPro-Windows-1.0.${BUILD_NUMBER}.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlcorCutPro-Windows-1.0.${{ github.run_number }}
+          path: dist/*
+      - name: Publish release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: AlcorCut Pro for Windows 1.0.${{ github.run_number }}
+          files: dist/*
+
+  classpath:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew --no-daemon exportClasspath
+      - uses: actions/upload-artifact@v4
+        with:
+          name: classpath
+          path: build/classpath/*
+          retention-days: 30
