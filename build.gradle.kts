@@ -48,8 +48,14 @@ compose.desktop {
     }
 }
 
-/** Dependency jars for compile checks outside CI. */
+/** Dependency jars (and the compiler) for compile checks outside CI. */
+val localCompiler: Configuration by configurations.creating
+dependencies {
+    localCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.0.21")
+    localCompiler("org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.0.21")
+}
 tasks.register<Copy>("exportClasspath") {
     from(configurations.compileClasspath)
     into(layout.buildDirectory.dir("classpath"))
+    from(localCompiler) { into("compiler") }
 }

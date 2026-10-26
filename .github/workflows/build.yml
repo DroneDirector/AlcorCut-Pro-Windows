@@ -64,6 +64,7 @@ jobs:
         run: |
           cd build/classpath
           rm -f skiko-awt-runtime-*.jar
+          ls -R | head -80
           git init -q -b classpath
           git config user.name "DroneDirector"
           git config user.email "simon@dronedirector.fo"
