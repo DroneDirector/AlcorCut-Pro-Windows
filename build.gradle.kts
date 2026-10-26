@@ -65,7 +65,7 @@ tasks.register("exportClasspath") {
         val comp = File(out, "compiler")
         comp.mkdirs()
         // Group in the name: some libraries share file names across groups.
-        configurations.compileClasspath.get().resolvedConfiguration.resolvedArtifacts.forEach { a ->
+        configurations.runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts.forEach { a ->
             a.file.copyTo(File(out, a.moduleVersion.id.group + "--" + a.file.name), true)
         }
         localCompiler.resolvedConfiguration.resolvedArtifacts.forEach { a -> a.file.copyTo(File(comp, a.file.name), true) }
