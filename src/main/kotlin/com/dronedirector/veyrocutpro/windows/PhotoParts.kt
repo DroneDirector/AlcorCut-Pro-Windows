@@ -73,16 +73,3 @@ object PenMask {
 object DepthModel {
     fun infer(context: Context, bmp: Bitmap, longSide: Int = 518): Triple<FloatArray, Int, Int>? = null
 }
-
-/** Saves an edited picture as a new file in the photo editor's save folder. */
-fun savePicture(context: Context, bmp: Bitmap, png: Boolean, quality: Int, area: StorageArea = StorageArea.PHOTO): Uri? {
-    val name = "EDIT_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + if (png) ".png" else ".jpg"
-    val f = Storage.newFile(context, area, Storage.Kind.IMAGE, name)
-    return try {
-        f.outputStream().buffered().use {
-            if (png) bmp.compress(Bitmap.CompressFormat.PNG, 100, it)
-            else JpegMax.write(it, bmp.width, bmp.height, quality, null) { y, n, dst -> bmp.getPixels(dst, 0, bmp.width, 0, y, bmp.width, n) }
-        }
-        Uri.fromFile(f)
-    } catch (_: Throwable) { f.delete(); null }
-}

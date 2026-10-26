@@ -53,8 +53,11 @@ class Canvas(private var bmp: Bitmap? = null) {
 
     fun drawBitmap(src: Bitmap, srcRect: Rect?, dst: Rect, paint: Paint?) = drawBitmap(src, srcRect, RectF(dst), paint)
 
-    fun drawBitmap(src: Bitmap, matrix: Matrix?, paint: Paint?) {
+    fun drawBitmap(src0: Bitmap, matrix: Matrix?, paint: Paint?) {
         val out = bmp ?: return
+        // Different colour spaces: convert a copy first.
+        val src = if (src0.colorSpace != null && out.colorSpace != null && src0.colorSpace != out.colorSpace)
+            src0.copy(Bitmap.Config.ARGB_8888, true).also { ColorSpace.convert(it.data, src0.colorSpace!!, out.colorSpace!!) } else src0
         val full = Matrix(m).apply { if (matrix != null) preConcat(matrix) }
         val inv = Matrix()
         if (!full.invert(inv)) return

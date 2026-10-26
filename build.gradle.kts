@@ -20,6 +20,8 @@ dependencies {
     implementation(compose.materialIconsExtended)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
     implementation("com.google.code.gson:gson:2.11.0")
+    // AI models (MIT licence)
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
 }
 
 compose.desktop {

@@ -16,7 +16,7 @@ object ActivityResultContracts {
     private val videoExt = listOf("mp4", "mov", "m4v", "mkv", "webm", "avi", "mts", "m2ts", "3gp")
     private val audioExt = listOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus")
 
-    /** Extensions for a MIME filter such as "image/*". Empty = everything. */
+    /** Extensions for a MIME filter (an image, video or audio type). Empty = everything. */
     internal fun extsFor(mimes: List<String>): List<String> {
         val out = ArrayList<String>()
         for (m in mimes) when {

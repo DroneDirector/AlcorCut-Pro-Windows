@@ -1,7 +1,15 @@
 package com.dronedirector.veyrocutpro.camera
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
+import android.net.Uri
+import androidx.exifinterface.media.ExifInterface
+import java.io.ByteArrayOutputStream
 
 /**
  * Colour looks. Each is a 4×5 colour matrix, the same one drives the live GPU
@@ -122,6 +130,15 @@ enum class Filter(val label: String, val swatch: Long) {
             )
         )
 
+        private val keptExif = listOf(
+            ExifInterface.TAG_ORIENTATION, ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL,
+            ExifInterface.TAG_DATETIME_DIGITIZED, ExifInterface.TAG_OFFSET_TIME, ExifInterface.TAG_MAKE,
+            ExifInterface.TAG_MODEL, ExifInterface.TAG_F_NUMBER, ExifInterface.TAG_EXPOSURE_TIME,
+            ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, ExifInterface.TAG_FOCAL_LENGTH,
+            ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, ExifInterface.TAG_WHITE_BALANCE,
+            ExifInterface.TAG_FLASH, ExifInterface.TAG_EXPOSURE_BIAS_VALUE, ExifInterface.TAG_SOFTWARE,
+        )
+
         /** Same maths as the live shader's film-look stage, applied to a bitmap row by row. */
         fun applyLook(bmp: Bitmap, look: Look) {
             val w = bmp.width
@@ -139,6 +156,47 @@ enum class Filter(val label: String, val swatch: Long) {
             }
         }
 
+        /**
+         * Applies a filter to a JPEG already saved in MediaStore, in place, keeping the
+         * important EXIF tags (orientation, exposure, date). Runs on a background thread.
+         */
+        fun applyToSavedJpeg(context: Context, uri: Uri, filter: Filter): Boolean {
+            if (filter == NONE) return true
+            val resolver = context.contentResolver
+            return try {
+                val saved = resolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    val exif = ExifInterface(pfd.fileDescriptor)
+                    keptExif.associateWith { exif.getAttribute(it) }.filterValues { it != null }
+                } ?: emptyMap()
+
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                val pixels = bounds.outWidth.toLong() * bounds.outHeight
+                val opts = BitmapFactory.Options().apply {
+                    inMutable = true
+                    // Keep memory sane on very high resolution sensors.
+                    inSampleSize = if (pixels > 30_000_000L) 2 else 1
+                }
+                val src = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) } ?: return false
+                val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+                Canvas(out).drawBitmap(src, 0f, 0f, Paint().apply { colorFilter = ColorMatrixColorFilter(filter.matrix) })
+                src.recycle()
+                filter.look?.let { applyLook(out, it) }
+                val bytes = ByteArrayOutputStream().also { out.compress(Bitmap.CompressFormat.JPEG, 95, it) }.toByteArray()
+                out.recycle()
+
+                resolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: return false
+                resolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                    val exif = ExifInterface(pfd.fileDescriptor)
+                    saved.forEach { (k, v) -> exif.setAttribute(k, v) }
+                    exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, "AlcorCut Pro ${filter.label}")
+                    exif.saveAttributes()
+                }
+                true
+            } catch (_: Throwable) {
+                false
+            }
+        }
     }
 }
 

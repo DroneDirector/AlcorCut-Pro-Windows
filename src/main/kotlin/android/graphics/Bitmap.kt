@@ -6,9 +6,7 @@ import java.awt.image.DirectColorModel
 import java.awt.image.Raster
 import java.awt.image.SinglePixelPackedSampleModel
 import java.io.OutputStream
-import javax.imageio.IIOImage
 import javax.imageio.ImageIO
-import javax.imageio.ImageWriteParam
 
 /**
  * Pixel picture for the Windows app: 32-bit ARGB (not premultiplied), kept in one int array so the
@@ -29,6 +27,11 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
     val byteCount: Int get() = w * h * 4
     val allocationByteCount: Int get() = data.size * 4
     var density: Int = 0
+    /** Colour space of the pixels (sRGB unless made for another space). */
+    var colorSpace: ColorSpace? = ColorSpace.get(ColorSpace.Named.SRGB)
+        internal set
+    var gainmap: Gainmap? = null
+    fun hasGainmap() = gainmap != null
 
     /** A Java2D view onto the same pixels (drawing into it changes this bitmap). */
     val image: BufferedImage by lazy {
@@ -51,7 +54,7 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
 
     fun eraseColor(c: Int) = data.fill(c)
 
-    fun copy(config: Config, mutable: Boolean): Bitmap = Bitmap(w, h, data.copyOf(), Config.ARGB_8888).also { it.alpha = alpha }
+    fun copy(config: Config, mutable: Boolean): Bitmap = Bitmap(w, h, data.copyOf(), Config.ARGB_8888).also { it.alpha = alpha; it.colorSpace = colorSpace }
 
     fun recycle() { isRecycled = true }
 
@@ -61,14 +64,10 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
         when (format) {
             CompressFormat.PNG, CompressFormat.WEBP_LOSSLESS -> ImageIO.write(image, "png", out)
             else -> {
-                val rgb = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
-                rgb.setRGB(0, 0, w, h, data, 0, w)
-                val wr = ImageIO.getImageWritersByFormatName("jpeg").next()
-                val ios = ImageIO.createImageOutputStream(out)
-                wr.output = ios
-                val p = wr.defaultWriteParam.apply { compressionMode = ImageWriteParam.MODE_EXPLICIT; compressionQuality = (quality / 100f).coerceIn(0f, 1f) }
-                wr.write(null, IIOImage(rgb, null, null), p)
-                ios.flush(); wr.dispose()
+                // The app's own JPEG encoder (full colour detail), with the colour profile when not sRGB.
+                val cs = colorSpace
+                val icc = if (cs != null && cs != ColorSpace.get(ColorSpace.Named.SRGB)) ColorSpace.icc(cs) else null
+                com.dronedirector.veyrocutpro.editor.JpegMax.write(out, w, h, quality, icc) { y, n, dst -> System.arraycopy(data, y * w, dst, 0, n * w) }
                 true
             }
         }
@@ -77,6 +76,7 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
     companion object {
         fun createBitmap(width: Int, height: Int, config: Config): Bitmap = Bitmap(width, height, IntArray(width * height), config)
         fun createBitmap(width: Int, height: Int, config: Config, hasAlpha: Boolean): Bitmap = createBitmap(width, height, config).also { it.alpha = hasAlpha }
+        fun createBitmap(width: Int, height: Int, config: Config, hasAlpha: Boolean, cs: ColorSpace): Bitmap = createBitmap(width, height, config).also { it.alpha = hasAlpha; it.colorSpace = cs }
         fun createBitmap(px: IntArray, width: Int, height: Int, config: Config): Bitmap = Bitmap(width, height, px.copyOf(width * height), config)
         fun createBitmap(px: IntArray, offset: Int, stride: Int, width: Int, height: Int, config: Config): Bitmap {
             val b = createBitmap(width, height, config); b.setPixels(px, offset, stride, 0, 0, width, height); return b

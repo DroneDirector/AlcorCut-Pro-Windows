@@ -1,0 +1,89 @@
+# Shared code from the Android app (see tools/sync.py). Windows-only code lives in windows/ and Main.kt.
+
+# Photo pipeline
+copy editor/ColorEngine.kt
+copy editor/ImageOps.kt
+copy editor/Develop.kt
+copy editor/JpegMax.kt
+copy editor/PhotoLocal.kt
+copy editor/LutLibrary.kt
+copy editor/AutoEnhance.kt
+copy editor/LensBlur.kt
+copy editor/Retouch.kt
+copy editor/RawDng.kt
+copy editor/LibRawBridge.kt
+copy editor/DcpStore.kt
+copy editor/IccProof.kt
+copy editor/ColorChart.kt
+copy editor/MeasuredLooks.kt
+copy editor/Upright.kt
+copy editor/Merge.kt
+copy editor/PhotoErase.kt
+take camera/Filters.kt Filter Look
+
+# Photo editor screens
+copy editor/PhotoEditor.kt
+copy editor/PhotoTools.kt
+copy editor/PhotoViewer.kt
+copy editor/PhotoSession.kt
+copy editor/PhotoMeta.kt
+copy editor/ExportOpts.kt
+copy editor/DevPresets.kt
+copy editor/EditClipboard.kt
+copy editor/EditorUi.kt
+copy editor/LookTools.kt
+copy editor/CropGuides.kt
+copy editor/ScopeDrawer.kt
+copy editor/Resizable.kt
+copy editor/AddFrom.kt
+copy editor/KeyBus.kt
+copy editor/WatermarkMemory.kt
+copy editor/Rename.kt
+copy camera/CaptureExtras.kt
+copy camera/SimpleMode.kt
+
+# Catalogs and projects
+copy editor/Catalog.kt
+copy editor/CatalogUi.kt
+copy editor/VideoCatalog.kt
+copy editor/Projects.kt
+copy editor/ProjectUi.kt
+copy editor/ProTools.kt
+copy editor/SaveFolder.kt
+copy editor/ModelStore.kt
+copy camera/CloudAi.kt
+
+# Video editor data (the video engine comes later)
+take editor/VideoProject.kt Clip DeliverSettings ExportPreset RangeCut
+take editor/Layers.kt LayerKind LayerFont Layer LayerAnim AnimFx MusicTrack PoolAudio
+take editor/AudioFx.kt AudioChannels AudioFx EqBand AudioPreset
+take editor/Reframe.kt Frame ClipKey Reframe Stabilize Xform KeyCurve
+take editor/FilmFx.kt FilmLook
+take editor/Transitions.kt TransitionGroup TransitionKind TransitionType Transition AudioTransitionType TransitionMath
+copy editor/Sfx.kt
+copy editor/SpeedMap.kt
+take editor/AiDepth.kt DepthFx
+take editor/BgRemove.kt BgRemoval
+take editor/AudioExport.kt AudioExportFormat
+take editor/MagicMask.kt MagicSel
+take editor/LayerFx.kt LayerKey LayerBlend
+take editor/Waveforms.kt Beats
+take editor/VideoMasks.kt MAX_VIDEO_MASKS
+take camera/Upscaler.kt UpscaleSettings
+
+# App shell
+copy ui/Theme.kt
+copy ui/I18n.kt
+copy ui/Fold.kt
+copy ui/ScrollHints.kt
+copy ui/MousePointer.kt
+copy ui/Panels.kt
+copy ui/AiBadge.kt
+copy ui/Guide.kt
+copy ui/Licenses.kt
+copy ui/Tour.kt
+take ui/SettingsPanel.kt SettingsGroup AccentPicker
+take ui/HomeScreen.kt AppScreen StartScreen
+copy ui/CloudAiSettings.kt
+copy ui/Backup.kt
+copy ui/UprightThumb.kt
