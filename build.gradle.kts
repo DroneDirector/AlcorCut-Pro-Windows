@@ -59,9 +59,15 @@ dependencies {
     localCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.20")
     localCompiler("org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.2.20")
 }
-tasks.register<Copy>("exportClasspath") {
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    from(configurations.compileClasspath)
-    into(layout.buildDirectory.dir("classpath"))
-    from(localCompiler) { into("compiler") }
+tasks.register("exportClasspath") {
+    doLast {
+        val out = layout.buildDirectory.dir("classpath").get().asFile
+        val comp = File(out, "compiler")
+        comp.mkdirs()
+        // Group in the name: some libraries share file names across groups.
+        configurations.compileClasspath.get().resolvedConfiguration.resolvedArtifacts.forEach { a ->
+            a.file.copyTo(File(out, a.moduleVersion.id.group + "--" + a.file.name), true)
+        }
+        localCompiler.resolvedConfiguration.resolvedArtifacts.forEach { a -> a.file.copyTo(File(comp, a.file.name), true) }
+    }
 }
