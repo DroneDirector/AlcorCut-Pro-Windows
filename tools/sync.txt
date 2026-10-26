@@ -41,6 +41,22 @@ copy editor/WatermarkMemory.kt
 copy editor/Rename.kt
 copy camera/CaptureExtras.kt
 copy camera/SimpleMode.kt
+take camera/CameraModel.kt CaptureMode
+
+# AI (models run with ONNX Runtime / the phone's AI runtime layer)
+copy editor/AiDenoiser.kt
+copy editor/AiSegment.kt
+copy editor/ObjectRemoval.kt
+drop editor/ObjectRemoval.kt outFile make
+copy editor/Cull.kt
+copy editor/ShotMatch.kt
+copy camera/Upscaler.kt
+
+# Library
+copy editor/LibraryStore.kt
+copy editor/LibraryScreen.kt
+take camera/MediaLibrary.kt MediaItem
+take camera/Panorama.kt Panorama
 
 # Catalogs and projects
 copy editor/Catalog.kt
@@ -55,21 +71,24 @@ copy camera/CloudAi.kt
 
 # Video editor data (the video engine comes later)
 take editor/VideoProject.kt Clip DeliverSettings ExportPreset RangeCut
-take editor/Layers.kt LayerKind LayerFont Layer LayerAnim AnimFx MusicTrack PoolAudio
+take editor/Layers.kt LayerKind LayerFont Layer LayerAnim AnimFx LayerAnims LayerRenderer stampLayer MusicTrack PoolAudio
 take editor/AudioFx.kt AudioChannels AudioFx EqBand AudioPreset
 take editor/Reframe.kt Frame ClipKey Reframe Stabilize Xform KeyCurve
 take editor/FilmFx.kt FilmLook
 take editor/Transitions.kt TransitionGroup TransitionKind TransitionType Transition AudioTransitionType TransitionMath
-copy editor/Sfx.kt
+take editor/Sfx.kt SfxGroup TransitionSfx
 copy editor/SpeedMap.kt
 take editor/AiDepth.kt DepthFx
 take editor/BgRemove.kt BgRemoval
 take editor/AudioExport.kt AudioExportFormat
-take editor/MagicMask.kt MagicSel
-take editor/LayerFx.kt LayerKey LayerBlend
+take editor/MagicMask.kt MaskPoint MagicSel Sam MaskEntry MaskTrack
+take editor/LayerFx.kt LayerKey LayerBlend chromaKeyBitmap lumaKeyBitmap lumaLevelOrDefault lumaAlpha cbcr
+take editor/ShapesLottie.kt ShapeKind ShapeRender
+copy editor/LibraryMap.kt
+copy editor/PrintCollage.kt
+copy editor/ContactSheet.kt
 take editor/Waveforms.kt Beats
 take editor/VideoMasks.kt MAX_VIDEO_MASKS
-take camera/Upscaler.kt UpscaleSettings
 
 # App shell
 copy ui/Theme.kt
@@ -87,3 +106,6 @@ take ui/HomeScreen.kt AppScreen StartScreen
 copy ui/CloudAiSettings.kt
 copy ui/Backup.kt
 copy ui/UprightThumb.kt
+copy ui/KeepSettings.kt
+take ui/Monitor.kt MonitorClass monitorClass
+take ui/Scopes.kt ScopeMath

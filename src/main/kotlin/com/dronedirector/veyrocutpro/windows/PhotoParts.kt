@@ -71,5 +71,6 @@ object PenMask {
 
 /** Depth AI (comes with the AI models on Windows). */
 object DepthModel {
+    @Volatile var failed: String? = "AI depth comes to Windows with the AI models"
     fun infer(context: Context, bmp: Bitmap, longSide: Int = 518): Triple<FloatArray, Int, Int>? = null
 }

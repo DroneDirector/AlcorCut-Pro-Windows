@@ -2,6 +2,71 @@ package com.dronedirector.veyrocutpro.editor
 
 
 
+enum class TransitionGroup(val label: String) { BASIC("Basic"), WIPES("Wipes & shapes"), MOTION("Motion"), FANCY("Stylized"), CINEMATIC("Cinematic") }
+
+/** How the incoming clip is combined with the outgoing one. */
+enum class TransitionKind { UNIFORM, MASK, MOVE }
+
+enum class TransitionType(val id: Float, val label: String, val group: TransitionGroup, val kind: TransitionKind) {
+    NONE(0f, "Cut", TransitionGroup.BASIC, TransitionKind.UNIFORM),
+    CROSSFADE(1f, "Cross dissolve", TransitionGroup.BASIC, TransitionKind.UNIFORM),
+    DIP_BLACK(2f, "Dip to black", TransitionGroup.BASIC, TransitionKind.UNIFORM),
+    DIP_WHITE(3f, "Dip to white", TransitionGroup.BASIC, TransitionKind.UNIFORM),
+    FLASH(4f, "Flash", TransitionGroup.BASIC, TransitionKind.UNIFORM),
+    BLUR(5f, "Blur dissolve", TransitionGroup.BASIC, TransitionKind.UNIFORM),
+    /** For jump cuts (interviews), in-between frames drawn new from optical flow (MorphCut.kt); a soft dissolve until analysed. */
+    SMOOTH_CUT(7f, "Morph cut", TransitionGroup.BASIC, TransitionKind.UNIFORM),
+
+    WIPE_LEFT(10f, "Wipe left", TransitionGroup.WIPES, TransitionKind.MASK),
+    WIPE_RIGHT(11f, "Wipe right", TransitionGroup.WIPES, TransitionKind.MASK),
+    WIPE_UP(12f, "Wipe up", TransitionGroup.WIPES, TransitionKind.MASK),
+    WIPE_DOWN(13f, "Wipe down", TransitionGroup.WIPES, TransitionKind.MASK),
+    DIAGONAL(14f, "Diagonal", TransitionGroup.WIPES, TransitionKind.MASK),
+    IRIS(15f, "Iris", TransitionGroup.WIPES, TransitionKind.MASK),
+    CLOCK(16f, "Clock", TransitionGroup.WIPES, TransitionKind.MASK),
+    BLINDS(17f, "Blinds", TransitionGroup.WIPES, TransitionKind.MASK),
+    BARN_DOOR(18f, "Barn door", TransitionGroup.WIPES, TransitionKind.MASK),
+    MOSAIC(19f, "Mosaic", TransitionGroup.WIPES, TransitionKind.MASK),
+
+    PUSH_LEFT(30f, "Push left", TransitionGroup.MOTION, TransitionKind.MOVE),
+    PUSH_RIGHT(31f, "Push right", TransitionGroup.MOTION, TransitionKind.MOVE),
+    PUSH_UP(32f, "Push up", TransitionGroup.MOTION, TransitionKind.MOVE),
+    PUSH_DOWN(33f, "Push down", TransitionGroup.MOTION, TransitionKind.MOVE),
+    WHIP_LEFT(34f, "Whip pan left", TransitionGroup.MOTION, TransitionKind.MOVE),
+    WHIP_RIGHT(35f, "Whip pan right", TransitionGroup.MOTION, TransitionKind.MOVE),
+    ZOOM_IN(36f, "Zoom in", TransitionGroup.MOTION, TransitionKind.UNIFORM),
+    ZOOM_OUT(37f, "Zoom out", TransitionGroup.MOTION, TransitionKind.UNIFORM),
+    SPIN(38f, "Spin", TransitionGroup.MOTION, TransitionKind.UNIFORM),
+
+    LIGHT_LEAK(6f, "Light leak", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+    INK(20f, "Ink bleed", TransitionGroup.FANCY, TransitionKind.MASK),
+    SPARKLE(21f, "Sparkle dissolve", TransitionGroup.FANCY, TransitionKind.MASK),
+    GLITCH(40f, "Glitch", TransitionGroup.FANCY, TransitionKind.MASK),
+    PIXELATE(41f, "Pixelate", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+    CHROMA(42f, "Chromatic", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+    RIPPLE(43f, "Ripple", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+    LIGHT_SPEED(44f, "Light speed", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+    SWIRL(45f, "Swirl", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+    GLITCH_MOSH(53f, "Glitch 2 · Datamosh", TransitionGroup.FANCY, TransitionKind.MASK),
+    GLITCH_VHS(54f, "Glitch 3 · VHS rewind", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+    GLITCH_SORT(63f, "Glitch 4 · Pixel sort", TransitionGroup.FANCY, TransitionKind.UNIFORM),
+
+    // Cinematic set: original AlcorCut Pro shaders (written for this app, no third-party code).
+    FILM_BURN(50f, "Film burn", TransitionGroup.CINEMATIC, TransitionKind.MASK),
+    ANAMORPHIC(51f, "Anamorphic flare", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
+    LENS_WARP(52f, "Lens warp", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
+    LETTERBOX(55f, "Letterbox close", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
+    APERTURE(56f, "Aperture", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
+    SMOKE(57f, "Smoke", TransitionGroup.CINEMATIC, TransitionKind.MASK),
+    SHATTER(58f, "Shatter", TransitionGroup.CINEMATIC, TransitionKind.MASK),
+    KALEIDO(59f, "Kaleidoscope", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
+    CUBE(60f, "Cube turn", TransitionGroup.CINEMATIC, TransitionKind.MASK),
+    FLIP(61f, "Card flip", TransitionGroup.CINEMATIC, TransitionKind.MASK),
+    SUN_RAYS(62f, "Sun rays", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
+    NEON(64f, "Neon edges", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
+    EMBERS(65f, "Ember drift", TransitionGroup.CINEMATIC, TransitionKind.MASK),
+}
+
 /**
  * Transition from a clip into the next one: the picture ([type]) and the sound ([audio]).
  * [audio] / [audioMs] are nullable so projects saved before audio transitions still load.
@@ -20,6 +85,18 @@ data class Transition(
     val sfxVolume: Float get() = sfxVol ?: 0.8f
     val audioType: AudioTransitionType get() = audio ?: AudioTransitionType.AUTO
     val audioLen: Long get() = audioMs ?: 600L
+}
+
+/** How the sound changes from one clip to the next. */
+enum class AudioTransitionType(val label: String, val detail: String) {
+    AUTO("Match video", "Smooth crossfade over the video transition; nothing on a plain cut."),
+    CUT("Hard cut", "Sound switches in the middle of the transition, no fade."),
+    CONSTANT_GAIN("Constant gain", "Straight-line crossfade. Can dip slightly in the middle."),
+    CONSTANT_POWER("Constant power", "Equal-power crossfade — no dip in loudness. Best all-rounder."),
+    EXPONENTIAL("Exponential fade", "Outgoing sound drops away quickly, incoming swells in late. Natural for music."),
+    DIP("Dip to silence", "Outgoing fades out, a short silence, then the next clip fades in."),
+    QUICK_OUT("Quick out, slow in", "Old sound disappears fast; new sound eases in."),
+    QUICK_IN("Slow out, quick in", "Old sound lingers and fades; new sound arrives fast."),
 }
 
 object TransitionMath {
@@ -539,64 +616,4 @@ object TransitionMath {
     """ + CORE + """
         void main() { gl_FragColor = shade(vTexSamplingCoord); }
     """
-}
-
-enum class TransitionType(val id: Float, val label: String, val group: TransitionGroup, val kind: TransitionKind) {
-    NONE(0f, "Cut", TransitionGroup.BASIC, TransitionKind.UNIFORM),
-    CROSSFADE(1f, "Cross dissolve", TransitionGroup.BASIC, TransitionKind.UNIFORM),
-    DIP_BLACK(2f, "Dip to black", TransitionGroup.BASIC, TransitionKind.UNIFORM),
-    DIP_WHITE(3f, "Dip to white", TransitionGroup.BASIC, TransitionKind.UNIFORM),
-    FLASH(4f, "Flash", TransitionGroup.BASIC, TransitionKind.UNIFORM),
-    BLUR(5f, "Blur dissolve", TransitionGroup.BASIC, TransitionKind.UNIFORM),
-    /** For jump cuts (interviews), in-between frames drawn new from optical flow (MorphCut.kt); a soft dissolve until analysed. */
-    SMOOTH_CUT(7f, "Morph cut", TransitionGroup.BASIC, TransitionKind.UNIFORM),
-
-    WIPE_LEFT(10f, "Wipe left", TransitionGroup.WIPES, TransitionKind.MASK),
-    WIPE_RIGHT(11f, "Wipe right", TransitionGroup.WIPES, TransitionKind.MASK),
-    WIPE_UP(12f, "Wipe up", TransitionGroup.WIPES, TransitionKind.MASK),
-    WIPE_DOWN(13f, "Wipe down", TransitionGroup.WIPES, TransitionKind.MASK),
-    DIAGONAL(14f, "Diagonal", TransitionGroup.WIPES, TransitionKind.MASK),
-    IRIS(15f, "Iris", TransitionGroup.WIPES, TransitionKind.MASK),
-    CLOCK(16f, "Clock", TransitionGroup.WIPES, TransitionKind.MASK),
-    BLINDS(17f, "Blinds", TransitionGroup.WIPES, TransitionKind.MASK),
-    BARN_DOOR(18f, "Barn door", TransitionGroup.WIPES, TransitionKind.MASK),
-    MOSAIC(19f, "Mosaic", TransitionGroup.WIPES, TransitionKind.MASK),
-
-    PUSH_LEFT(30f, "Push left", TransitionGroup.MOTION, TransitionKind.MOVE),
-    PUSH_RIGHT(31f, "Push right", TransitionGroup.MOTION, TransitionKind.MOVE),
-    PUSH_UP(32f, "Push up", TransitionGroup.MOTION, TransitionKind.MOVE),
-    PUSH_DOWN(33f, "Push down", TransitionGroup.MOTION, TransitionKind.MOVE),
-    WHIP_LEFT(34f, "Whip pan left", TransitionGroup.MOTION, TransitionKind.MOVE),
-    WHIP_RIGHT(35f, "Whip pan right", TransitionGroup.MOTION, TransitionKind.MOVE),
-    ZOOM_IN(36f, "Zoom in", TransitionGroup.MOTION, TransitionKind.UNIFORM),
-    ZOOM_OUT(37f, "Zoom out", TransitionGroup.MOTION, TransitionKind.UNIFORM),
-    SPIN(38f, "Spin", TransitionGroup.MOTION, TransitionKind.UNIFORM),
-
-    LIGHT_LEAK(6f, "Light leak", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-    INK(20f, "Ink bleed", TransitionGroup.FANCY, TransitionKind.MASK),
-    SPARKLE(21f, "Sparkle dissolve", TransitionGroup.FANCY, TransitionKind.MASK),
-    GLITCH(40f, "Glitch", TransitionGroup.FANCY, TransitionKind.MASK),
-    PIXELATE(41f, "Pixelate", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-    CHROMA(42f, "Chromatic", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-    RIPPLE(43f, "Ripple", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-    LIGHT_SPEED(44f, "Light speed", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-    SWIRL(45f, "Swirl", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-    GLITCH_MOSH(53f, "Glitch 2 · Datamosh", TransitionGroup.FANCY, TransitionKind.MASK),
-    GLITCH_VHS(54f, "Glitch 3 · VHS rewind", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-    GLITCH_SORT(63f, "Glitch 4 · Pixel sort", TransitionGroup.FANCY, TransitionKind.UNIFORM),
-
-    // Cinematic set: original AlcorCut Pro shaders (written for this app, no third-party code).
-    FILM_BURN(50f, "Film burn", TransitionGroup.CINEMATIC, TransitionKind.MASK),
-    ANAMORPHIC(51f, "Anamorphic flare", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
-    LENS_WARP(52f, "Lens warp", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
-    LETTERBOX(55f, "Letterbox close", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
-    APERTURE(56f, "Aperture", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
-    SMOKE(57f, "Smoke", TransitionGroup.CINEMATIC, TransitionKind.MASK),
-    SHATTER(58f, "Shatter", TransitionGroup.CINEMATIC, TransitionKind.MASK),
-    KALEIDO(59f, "Kaleidoscope", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
-    CUBE(60f, "Cube turn", TransitionGroup.CINEMATIC, TransitionKind.MASK),
-    FLIP(61f, "Card flip", TransitionGroup.CINEMATIC, TransitionKind.MASK),
-    SUN_RAYS(62f, "Sun rays", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
-    NEON(64f, "Neon edges", TransitionGroup.CINEMATIC, TransitionKind.UNIFORM),
-    EMBERS(65f, "Ember drift", TransitionGroup.CINEMATIC, TransitionKind.MASK),
 }

@@ -54,6 +54,22 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
 
     fun eraseColor(c: Int) = data.fill(c)
 
+    /** Raw RGBA bytes in / out (as the phone lays them out). */
+    fun copyPixelsFromBuffer(buf: java.nio.Buffer) {
+        val b = buf as java.nio.ByteBuffer
+        for (i in data.indices) {
+            val r = b.get().toInt() and 0xFF; val g = b.get().toInt() and 0xFF; val bl = b.get().toInt() and 0xFF; val a = b.get().toInt() and 0xFF
+            data[i] = (a shl 24) or (r shl 16) or (g shl 8) or bl
+        }
+    }
+    fun copyPixelsToBuffer(buf: java.nio.Buffer) {
+        val b = buf as java.nio.ByteBuffer
+        for (p in data) { b.put((p shr 16).toByte()); b.put((p shr 8).toByte()); b.put(p.toByte()); b.put((p ushr 24).toByte()) }
+    }
+    val rowBytes: Int get() = w * 4
+    fun prepareToDraw() {}
+    fun reconfigure(width: Int, height: Int, config: Config) { this.w = width; this.h = height; if (data.size < width * height) data = IntArray(width * height) }
+
     fun copy(config: Config, mutable: Boolean): Bitmap = Bitmap(w, h, data.copyOf(), Config.ARGB_8888).also { it.alpha = alpha; it.colorSpace = colorSpace }
 
     fun recycle() { isRecycled = true }

@@ -7,6 +7,7 @@ import java.io.File
 
 /** Folders picked with the folder dialog are plain folders on Windows. Own code. */
 object DocumentsContract {
+    const val EXTRA_INITIAL_URI = "android.provider.extra.INITIAL_URI"
     fun getTreeDocumentId(tree: Uri): String = tree.toFile()?.path ?: tree.toString()
     fun getDocumentId(u: Uri): String = u.toFile()?.path ?: u.toString()
     fun buildDocumentUriUsingTree(tree: Uri, id: String): Uri = Uri.fromFile(File(id))

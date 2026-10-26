@@ -24,8 +24,21 @@ class Canvas(private var bmp: Bitmap? = null) {
     val height: Int get() = bmp?.height ?: 0
     fun setBitmap(b: Bitmap?) { bmp = b }
 
-    fun save(): Int { stack += Matrix(m); return stack.size }
-    fun restore() { if (stack.isNotEmpty()) m = stack.removeAt(stack.size - 1) }
+    private val clips = ArrayList<java.awt.Shape?>()
+    private var clip: java.awt.Shape? = null
+    fun save(): Int { stack += Matrix(m); clips += clip; return stack.size }
+    fun restore() { if (stack.isNotEmpty()) { m = stack.removeAt(stack.size - 1); clip = clips.removeAt(clips.size - 1) } }
+
+    /** Limits drawing to [path] (shapes and pictures). */
+    fun clipPath(path: Path): Boolean {
+        val s = java.awt.geom.Area(path.shape)
+        if (m.isAffine) s.transform(AffineTransform(m.v[0], m.v[3], m.v[1], m.v[4], m.v[2], m.v[5]))
+        clip = clip?.let { java.awt.geom.Area(it).apply { intersect(s) } } ?: s
+        return true
+    }
+    fun clipRect(l: Float, t: Float, r: Float, b: Float): Boolean = clipPath(Path().apply { addRect(l, t, r, b, Path.Direction.CW) })
+    fun clipRect(r: RectF): Boolean = clipRect(r.left, r.top, r.right, r.bottom)
+    fun clipRect(r: Rect): Boolean = clipRect(r.left.toFloat(), r.top.toFloat(), r.right.toFloat(), r.bottom.toFloat())
     fun restoreToCount(n: Int) { while (stack.size >= n && stack.isNotEmpty()) restore() }
     fun translate(dx: Float, dy: Float) { m.preTranslate(dx, dy) }
     fun scale(sx: Float, sy: Float) { m.preScale(sx, sy) }
@@ -55,6 +68,16 @@ class Canvas(private var bmp: Bitmap? = null) {
 
     fun drawBitmap(src0: Bitmap, matrix: Matrix?, paint: Paint?) {
         val out = bmp ?: return
+        clip?.let { c ->
+            // Draw on a layer, then copy only the pixels inside the clip.
+            val layer = out.copy(Bitmap.Config.ARGB_8888, true)
+            val cv = Canvas(layer).also { it.m = Matrix(m) }
+            cv.drawBitmap(src0, matrix, paint)
+            val b = c.bounds
+            for (y in maxOf(0, b.y) until minOf(out.height, b.y + b.height)) for (x in maxOf(0, b.x) until minOf(out.width, b.x + b.width))
+                if (c.contains(x + 0.5, y + 0.5)) out.data[y * out.width + x] = layer.data[y * out.width + x]
+            return
+        }
         // Different colour spaces: convert a copy first.
         val src = if (src0.colorSpace != null && out.colorSpace != null && src0.colorSpace != out.colorSpace)
             src0.copy(Bitmap.Config.ARGB_8888, true).also { ColorSpace.convert(it.data, src0.colorSpace!!, out.colorSpace!!) } else src0
@@ -209,6 +232,7 @@ class Canvas(private var bmp: Bitmap? = null) {
                 g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
             }
             g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
+            clip?.let { g.clip = it }
             val v = m.v
             if (m.isAffine) g.transform = AffineTransform(v[0], v[3], v[1], v[4], v[2], v[5])
             val mode = (p.xfermode as? PorterDuffXfermode)?.mode
@@ -301,6 +325,10 @@ object BitmapFactory {
         @JvmField var outWidth = 0
         @JvmField var outHeight = 0
         @JvmField var outMimeType: String? = null
+        @JvmField var inPremultiplied = true
+        @JvmField var inScaled = true
+        @JvmField var inDensity = 0
+        @JvmField var inTargetDensity = 0
     }
 
     fun decodeFile(path: String): Bitmap? = decodeFile(path, null)

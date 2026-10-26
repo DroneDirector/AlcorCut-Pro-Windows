@@ -8,6 +8,8 @@ tools/sync.txt lists what comes over:
   copy <file>                     the whole file, unchanged
   take <file> <Name> [<Name>...]  only those top-level declarations (with their comments),
                                   for files that also hold phone-only parts
+  drop <file> <member> [...]      remove member functions (by name) from a file already brought over,
+                                  where they only serve the phone (e.g. video parts of a photo tool)
   edit <file> <python file>       after copying, apply replacements from tools/edits/<python file>
 Files written by this tool start from the Android version every time, so changes belong in
 tools/edits, never in the copied files.
@@ -70,6 +72,37 @@ def take(text, names):
     return '\n'.join(head) + '\n\n' + '\n'.join(used) + '\n\n' + joined + '\n'
 
 
+def drop(text, names):
+    lines = text.split('\n')
+    for n in names:
+        pat = re.compile(r'^(\s+)(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|internal|public|override|suspend|inline|operator)\s+)*fun\s+(?:<[^>]*>\s*)?%s\s*\(' % re.escape(n))
+        found = False
+        for i, l in enumerate(lines):
+            m = pat.match(l)
+            if not m:
+                continue
+            ind = m.group(1)
+            s = i
+            while s > 0 and lines[s - 1].strip().startswith(('/**', '*', '*/', '@', '//')) and lines[s - 1].startswith(ind):
+                s -= 1
+            depth = 0; e = i; opened = False
+            while e < len(lines):
+                code = re.sub(r'"(?:\\.|[^"\\])*"', '""', lines[e])
+                code = re.sub(r"'(?:\\.|[^'\\])'", "''", code).split('//')[0]
+                depth += code.count('{') - code.count('}')
+                opened = opened or '{' in code
+                e += 1
+                if depth <= 0 and (opened or not code.rstrip().endswith(('=', '(', ','))):
+                    if depth <= 0 and (opened or e > i):
+                        break
+            del lines[s:e]
+            found = True
+            break
+        if not found:
+            sys.exit('drop: %s not found' % n)
+    return '\n'.join(lines)
+
+
 def main():
     android = os.path.join(sys.argv[1], 'app/src/main/java', PKG)
     edits_dir = os.path.join(ROOT, 'tools/edits')
@@ -86,6 +119,8 @@ def main():
             text = open(src, encoding='utf-8').read()
         elif cmd == 'take':
             text = take(open(src, encoding='utf-8').read(), parts[2:])
+        elif cmd == 'drop':
+            text = drop(open(dst, encoding='utf-8').read(), parts[2:])
         elif cmd == 'edit':
             text = open(dst, encoding='utf-8').read()
             rules = {}

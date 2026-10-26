@@ -56,7 +56,10 @@ open class Context {
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun <T> getSystemService(c: Class<T>): T? = if (c == android.net.ConnectivityManager::class.java) android.net.ConnectivityManager() as T else null
+    fun <T> getSystemService(c: Class<T>): T = (if (c == android.net.ConnectivityManager::class.java) android.net.ConnectivityManager() else null) as T
+
+    val resources: android.content.res.Resources get() = android.content.res.Resources.system
+    val applicationInfo: android.content.pm.ApplicationInfo get() = android.content.pm.ApplicationInfo(root.path)
 
     /** The app's own folder, then "AlcorCut Pro" on every other drive (for catalogs). */
     fun getExternalFilesDirs(type: String?): Array<File?> {

@@ -21,3 +21,5 @@ class PackageManager {
     fun getLaunchIntentForPackage(name: String): android.content.Intent? = android.content.Intent("restart")
     fun hasSystemFeature(f: String): Boolean = false
 }
+
+class ApplicationInfo(@JvmField val dataDir: String)

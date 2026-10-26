@@ -195,7 +195,7 @@ class RectF(@JvmField var left: Float = 0f, @JvmField var top: Float = 0f, @JvmF
     fun centerY() = (top + bottom) / 2f
     fun set(l: Float, t: Float, r: Float, b: Float) { left = l; top = t; right = r; bottom = b }
     fun set(o: RectF) = set(o.left, o.top, o.right, o.bottom)
-    fun isEmpty() = left >= right || top >= bottom
+    val isEmpty: Boolean get() = left >= right || top >= bottom
     fun contains(x: Float, y: Float) = x >= left && x < right && y >= top && y < bottom
     fun offset(dx: Float, dy: Float) { left += dx; right += dx; top += dy; bottom += dy }
     fun inset(dx: Float, dy: Float) { left += dx; right -= dx; top += dy; bottom -= dy }
@@ -209,7 +209,7 @@ class Rect(@JvmField var left: Int = 0, @JvmField var top: Int = 0, @JvmField va
     fun centerX() = (left + right) / 2
     fun centerY() = (top + bottom) / 2
     fun set(l: Int, t: Int, r: Int, b: Int) { left = l; top = t; right = r; bottom = b }
-    fun isEmpty() = left >= right || top >= bottom
+    val isEmpty: Boolean get() = left >= right || top >= bottom
     fun contains(x: Int, y: Int) = x >= left && x < right && y >= top && y < bottom
 }
 

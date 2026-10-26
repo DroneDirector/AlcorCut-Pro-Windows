@@ -1,9 +1,9 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
-    kotlin("jvm") version "2.0.21"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
-    id("org.jetbrains.compose") version "1.7.3"
+    kotlin("jvm") version "2.2.20"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.20"
+    id("org.jetbrains.compose") version "1.9.0"
 }
 
 /** App version: 1.0.<build number from CI>, or 1.0.0 locally. */
@@ -12,13 +12,16 @@ version = appVersion
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        freeCompilerArgs.addAll("-Xnon-local-break-continue")
+    }
 }
 
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("com.google.code.gson:gson:2.11.0")
     // AI models (MIT licence)
     implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
@@ -53,8 +56,8 @@ compose.desktop {
 /** Dependency jars (and the compiler) for compile checks outside CI. */
 val localCompiler: Configuration by configurations.creating
 dependencies {
-    localCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.0.21")
-    localCompiler("org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.0.21")
+    localCompiler("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.2.20")
+    localCompiler("org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.2.20")
 }
 tasks.register<Copy>("exportClasspath") {
     from(configurations.compileClasspath)

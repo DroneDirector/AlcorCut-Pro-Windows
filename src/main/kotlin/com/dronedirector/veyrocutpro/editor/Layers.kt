@@ -1,8 +1,16 @@
 package com.dronedirector.veyrocutpro.editor
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
+import com.dronedirector.veyrocutpro.camera.GradeIO
 import java.util.UUID
+import kotlin.math.max
+import kotlin.math.min
 
 enum class LayerKind(val label: String) { TEXT("Text"), STICKER("Sticker"), WATERMARK("Watermark"), LOGO("Logo"), IMAGE("Image"), VIDEO("Video"), ADJUST("Adjustment"), SHAPE("Shape"), LOTTIE("Animation") }
 
@@ -113,6 +121,181 @@ enum class LayerAnim(val label: String) {
 data class AnimFx(val dx: Float = 0f, val dy: Float = 0f, val scale: Float = 1f, val alpha: Float = 1f, val reveal: Float = 1f, val chars: Float = 1f) {
     val isIdentity get() = this == AnimFx()
     operator fun times(o: AnimFx) = AnimFx(dx + o.dx, dy + o.dy, scale * o.scale, alpha * o.alpha, reveal * o.reveal, chars * o.chars)
+}
+
+object LayerAnims {
+    fun hasAny(l: Layer) = (l.animIn ?: LayerAnim.NONE) != LayerAnim.NONE || (!l.wholeVideo && (l.animOut ?: LayerAnim.NONE) != LayerAnim.NONE)
+
+    /** The animation state of [l] at timeline [ms]. */
+    fun at(l: Layer, ms: Long): AnimFx {
+        if (!hasAny(l)) return AnimFx()
+        if (l.animIn == LayerAnim.ROLL || l.animOut == LayerAnim.ROLL) {
+            // From just below the frame to just above it, at an even speed across the layer.
+            val start = if (l.wholeVideo) 0L else l.startMs
+            val len = if (l.wholeVideo) (l.animMs ?: 20_000L).coerceAtLeast(1000) else (l.endMs - l.startMs).coerceAtLeast(1)
+            val p = ((ms - start).toFloat() / len).coerceIn(0f, 1f)
+            val lines = l.text.lines().size.coerceAtLeast(1)
+            val half = lines * l.size * 1.25f / 2f
+            val from = 1f - l.y + half + 0.02f
+            val to = -(l.y + half + 0.02f)
+            return AnimFx(dy = from + (to - from) * p)
+        }
+        val len = if (l.wholeVideo) Long.MAX_VALUE else (l.endMs - l.startMs).coerceAtLeast(1)
+        val d = (l.animMs ?: 500L).coerceIn(50, if (l.wholeVideo) 10_000 else len / 2 + 1)
+        var fx = AnimFx()
+        val ai = l.animIn ?: LayerAnim.NONE
+        if (ai != LayerAnim.NONE) {
+            val start = if (l.wholeVideo) 0L else l.startMs
+            val p = (ms - start).toFloat() / d
+            if (p < 1f) fx *= shape(l, ai, p.coerceIn(0f, 1f), true)
+        }
+        val ao = l.animOut ?: LayerAnim.NONE
+        if (!l.wholeVideo && ao != LayerAnim.NONE) {
+            val p = (l.endMs - ms).toFloat() / d
+            if (p < 1f) fx *= shape(l, ao, p.coerceIn(0f, 1f), false)
+        }
+        return fx
+    }
+
+    private fun easeOut(p: Float) = 1f - (1f - p) * (1f - p) * (1f - p)
+    private fun backOut(p: Float): Float { val c1 = 1.70158f; val c3 = c1 + 1f; val q = p - 1f; return 1f + c3 * q * q * q + c1 * q * q }
+    private fun bounceOut(p: Float): Float {
+        val n = 7.5625f; val d = 2.75f
+        return when {
+            p < 1f / d -> n * p * p
+            p < 2f / d -> { val q = p - 1.5f / d; n * q * q + 0.75f }
+            p < 2.5f / d -> { val q = p - 2.25f / d; n * q * q + 0.9375f }
+            else -> { val q = p - 2.625f / d; n * q * q + 0.984375f }
+        }
+    }
+
+    /** [p]: 0 = fully gone, 1 = settled in place. Out-animations leave in the named direction. */
+    private fun shape(l: Layer, a: LayerAnim, p: Float, incoming: Boolean): AnimFx {
+        val e = easeOut(p)
+        val dir = if (incoming) 1f else -1f
+        val text = l.kind == LayerKind.TEXT || l.kind == LayerKind.WATERMARK
+        return when (a) {
+            LayerAnim.NONE -> AnimFx()
+            LayerAnim.FADE -> AnimFx(alpha = e)
+            LayerAnim.SLIDE_UP -> AnimFx(dy = (1f - e) * 0.15f * dir, alpha = e)
+            LayerAnim.SLIDE_DOWN -> AnimFx(dy = -(1f - e) * 0.15f * dir, alpha = e)
+            LayerAnim.SLIDE_LEFT -> AnimFx(dx = (1f - e) * 0.2f * dir, alpha = e)
+            LayerAnim.SLIDE_RIGHT -> AnimFx(dx = -(1f - e) * 0.2f * dir, alpha = e)
+            LayerAnim.POP -> AnimFx(scale = backOut(p).coerceAtLeast(0.01f), alpha = (p * 3f).coerceAtMost(1f))
+            LayerAnim.ZOOM -> AnimFx(scale = 1f + (1f - e) * 0.8f, alpha = e)
+            LayerAnim.BOUNCE -> AnimFx(dy = -(1f - bounceOut(p)) * 0.25f * dir, alpha = (p * 4f).coerceAtMost(1f))
+            LayerAnim.REVEAL -> AnimFx(reveal = e)
+            LayerAnim.TYPEWRITER -> if (text) AnimFx(chars = p) else AnimFx(reveal = e)
+            LayerAnim.ROLL -> AnimFx()
+        }
+    }
+
+    /** Characters shown for a typewriter state ([chars] 0..1 of the text). */
+    fun charCount(l: Layer, chars: Float): Int {
+        val n = l.text.replace("\n", "").length
+        return if (chars >= 1f) Int.MAX_VALUE else (n * chars).toInt().coerceIn(0, n)
+    }
+
+    /** A copy of [full] with only the left [reveal] share visible (same size, so it stays in place). */
+    fun revealed(full: Bitmap, reveal: Float): Bitmap {
+        if (reveal >= 1f) return full
+        val out = Bitmap.createBitmap(full.width, full.height, Bitmap.Config.ARGB_8888)
+        val w = (full.width * reveal.coerceIn(0f, 1f)).toInt()
+        if (w > 0) Canvas(out).drawBitmap(full, android.graphics.Rect(0, 0, w, full.height), android.graphics.Rect(0, 0, w, full.height), null)
+        return out
+    }
+}
+
+object LayerRenderer {
+    private val logoCache = HashMap<String, Bitmap>()
+
+    /** Draws a layer at the size it should have on a [frameW]×[frameH] frame. */
+    fun render(context: Context, l: Layer, frameW: Int, frameH: Int, chars: Int = Int.MAX_VALUE, hi: Int = -1, atMs: Long = -1L): Bitmap? {
+        val px = max(8f, l.size * frameH)
+        return when (l.kind) {
+            LayerKind.VIDEO, LayerKind.ADJUST -> null
+            LayerKind.SHAPE -> ShapeRender.render(l, px, frameW)
+            LayerKind.LOTTIE -> LottieRender.render(context, l, px, frameW, if (atMs < 0) 0 else LottieRender.frameIndex(context, l, atMs))
+            LayerKind.LOGO, LayerKind.IMAGE -> {
+                val uri = l.imageUri ?: return null
+                val src = synchronized(logoCache) {
+                    logoCache.getOrPut(uri.toString()) { GradeIO.decode(context, uri, 1024) ?: return null }
+                }
+                val h = px.toInt().coerceAtLeast(4)
+                val w = (src.width * (h.toFloat() / src.height)).toInt().coerceAtLeast(4)
+                val scaled = Bitmap.createScaledBitmap(src, min(w, frameW), h, true)
+                val key = l.chroma
+                (if (key != null) chromaKeyBitmap(scaled, key, l.chromaTol ?: 0.4f, l.chromaSoft ?: 0.3f) else scaled)
+                    .let { if ((l.lumaKey ?: 0) != 0) lumaKeyBitmap(it, l.lumaKey ?: 0, l.lumaLevelOrDefault(), l.lumaSoft ?: 0.15f) else it }
+            }
+            else -> renderText(l, px, frameW, chars, hi)
+        }
+    }
+
+    /** [chars]: how many characters to draw (typewriter); the size and layout always follow the full text. */
+    private fun renderText(l: Layer, px: Float, frameW: Int, chars: Int = Int.MAX_VALUE, hi: Int = -1): Bitmap {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = px
+            color = l.color
+            typeface = if (l.kind == LayerKind.STICKER) Typeface.DEFAULT else l.font.typeface
+            if (l.shadow && l.kind != LayerKind.STICKER) setShadowLayer(px * 0.08f, 0f, px * 0.04f, 0xAA000000.toInt())
+        }
+        val lines = l.text.ifEmpty { " " }.split('\n')
+        val fm = paint.fontMetrics
+        val lineH = fm.descent - fm.ascent
+        val pad = if (l.box) px * 0.35f else px * 0.15f
+        val textW = lines.maxOf { paint.measureText(it) }
+        val w = (textW + pad * 2).toInt().coerceIn(4, frameW * 2)
+        val h = (lineH * lines.size + pad * 2).toInt().coerceAtLeast(4)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        if (l.box) {
+            c.drawRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), px * 0.3f, px * 0.3f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99000000.toInt() })
+        }
+        var left = chars
+        lines.forEachIndexed { i, line ->
+            val lw = paint.measureText(line)
+            val part = if (left >= line.length) line else line.substring(0, left.coerceAtLeast(0))
+            left -= line.length
+            if (part.isNotEmpty()) c.drawText(part, (w - lw) / 2f, pad - fm.ascent + i * lineH, paint)
+        }
+        // Word-by-word captions: the word being spoken in the highlight colour (or on a box).
+        if (hi >= 0 && l.words != null) {
+            var k = 0
+            lines.forEachIndexed { i, line ->
+                val lw = paint.measureText(line)
+                var pos = 0
+                for (word in line.split(' ')) {
+                    if (word.isNotEmpty()) {
+                        if (k == hi) {
+                            val x = (w - lw) / 2f + paint.measureText(line, 0, pos)
+                            val ww = paint.measureText(word)
+                            val base = pad - fm.ascent + i * lineH
+                            val col = l.hiColor ?: 0xFFFFD60A.toInt()
+                            if (l.hiBox == true) {
+                                val pp = px * 0.12f
+                                c.drawRoundRect(RectF(x - pp, base + fm.ascent * 0.92f - pp * 0.4f, x + ww + pp, base + fm.descent * 0.9f + pp * 0.4f), px * 0.18f, px * 0.18f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col })
+                                c.drawText(word, x, base, Paint(paint).apply { color = 0xFF000000.toInt(); clearShadowLayer() })
+                            } else c.drawText(word, x, base, Paint(paint).apply { color = col })
+                        }
+                        k++
+                    }
+                    pos += word.length + 1
+                }
+            }
+        }
+        return bmp
+    }
+}
+
+/** Draws a watermark/logo layer onto a photo (returns a new bitmap). */
+fun stampLayer(context: Context, src: Bitmap, l: Layer): Bitmap {
+    if (!l.visible) return src
+    val mark = LayerRenderer.render(context, l, src.width, src.height) ?: return src
+    val out = if (src.isMutable) src else src.copy(Bitmap.Config.ARGB_8888, true)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { alpha = (l.opacity * 255).toInt().coerceIn(0, 255) }
+    Canvas(out).drawBitmap(mark, l.x * src.width - mark.width / 2f, l.y * src.height - mark.height / 2f, p)
+    return out
 }
 
 /** Background music for the video editor. */

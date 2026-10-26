@@ -4,7 +4,7 @@ import android.net.Uri
 
 /** The phone's "open this / share this" requests. On Windows: open in the browser or the file's app. Own code. */
 open class Intent(var action: String? = null, var data: Uri? = null) {
-    constructor(context: Context?, cls: Class<*>?) : this(null, null)
+    constructor(context: Context?, cls: Class<*>?) : this(null as String?, null as Uri?)
     var flags = 0
     var type: String? = null
     private val extras = HashMap<String, Any?>()

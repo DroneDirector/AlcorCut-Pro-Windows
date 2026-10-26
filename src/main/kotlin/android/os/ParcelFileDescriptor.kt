@@ -8,6 +8,7 @@ import java.io.RandomAccessFile
 class ParcelFileDescriptor private constructor(val file: File, private val raf: RandomAccessFile) : java.io.Closeable {
     val fileDescriptor: FileDescriptor get() = raf.fd.also { androidx.exifinterface.media.FileLinks.link(it, file) }
     val statSize: Long get() = file.length()
+    val fd: Int get() = -1
     override fun close() = raf.close()
     fun detachFd(): Int = -1
 

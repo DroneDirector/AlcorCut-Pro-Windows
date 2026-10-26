@@ -8,6 +8,8 @@ import android.net.Uri
  */
 abstract class ActivityResultContract<I, O> {
     internal abstract fun run(input: I, done: (O) -> Unit)
+    /** Kept for shared code that adjusts the request (the Windows dialogs ignore it). */
+    open fun createIntent(context: android.content.Context, input: I): android.content.Intent = android.content.Intent()
 }
 
 object ActivityResultContracts {
@@ -39,7 +41,7 @@ object ActivityResultContracts {
         else -> imageExt + videoExt
     }
 
-    class PickVisualMedia : ActivityResultContract<androidx.activity.result.PickVisualMediaRequest, Uri?>() {
+    open class PickVisualMedia : ActivityResultContract<androidx.activity.result.PickVisualMediaRequest, Uri?>() {
         sealed interface VisualMediaType
         object ImageOnly : VisualMediaType
         object VideoOnly : VisualMediaType
@@ -48,44 +50,54 @@ object ActivityResultContracts {
             FileDialogs.open(extsFor(input), multiple = false) { done(it.firstOrNull()) }
     }
 
-    class PickMultipleVisualMedia(val max: Int = 100) : ActivityResultContract<androidx.activity.result.PickVisualMediaRequest, List<Uri>>() {
+    open class PickMultipleVisualMedia(val max: Int = 100) : ActivityResultContract<androidx.activity.result.PickVisualMediaRequest, List<Uri>>() {
         override fun run(input: androidx.activity.result.PickVisualMediaRequest, done: (List<Uri>) -> Unit) =
             FileDialogs.open(extsFor(input), multiple = true) { done(it.take(max)) }
     }
 
-    class OpenDocument : ActivityResultContract<Array<String>, Uri?>() {
+    open class OpenDocument : ActivityResultContract<Array<String>, Uri?>() {
         override fun run(input: Array<String>, done: (Uri?) -> Unit) = FileDialogs.open(extsFor(input.toList()), multiple = false) { done(it.firstOrNull()) }
     }
 
-    class OpenMultipleDocuments : ActivityResultContract<Array<String>, List<Uri>>() {
+    open class OpenMultipleDocuments : ActivityResultContract<Array<String>, List<Uri>>() {
         override fun run(input: Array<String>, done: (List<Uri>) -> Unit) = FileDialogs.open(extsFor(input.toList()), multiple = true, done)
     }
 
-    class GetContent : ActivityResultContract<String, Uri?>() {
+    open class GetContent : ActivityResultContract<String, Uri?>() {
         override fun run(input: String, done: (Uri?) -> Unit) = FileDialogs.open(extsFor(listOf(input)), multiple = false) { done(it.firstOrNull()) }
     }
 
-    class GetMultipleContents : ActivityResultContract<String, List<Uri>>() {
+    open class GetMultipleContents : ActivityResultContract<String, List<Uri>>() {
         override fun run(input: String, done: (List<Uri>) -> Unit) = FileDialogs.open(extsFor(listOf(input)), multiple = true, done)
     }
 
-    class CreateDocument(val mime: String = "*/*") : ActivityResultContract<String, Uri?>() {
+    open class CreateDocument(val mime: String = "*/*") : ActivityResultContract<String, Uri?>() {
         override fun run(input: String, done: (Uri?) -> Unit) = FileDialogs.save(input, done)
     }
 
-    class OpenDocumentTree : ActivityResultContract<Uri?, Uri?>() {
+    open class OpenDocumentTree : ActivityResultContract<Uri?, Uri?>() {
         override fun run(input: Uri?, done: (Uri?) -> Unit) = FileDialogs.folder(done)
     }
 
-    class TakePicture : ActivityResultContract<Uri, Boolean>() {
+    open class StartIntentSenderForResult : ActivityResultContract<androidx.activity.result.IntentSenderRequest, androidx.activity.result.ActivityResult>() {
+        override fun run(input: androidx.activity.result.IntentSenderRequest, done: (androidx.activity.result.ActivityResult) -> Unit) =
+            done(androidx.activity.result.ActivityResult(android.app.Activity.RESULT_OK, null))
+    }
+
+    open class StartActivityForResult : ActivityResultContract<android.content.Intent, androidx.activity.result.ActivityResult>() {
+        override fun run(input: android.content.Intent, done: (androidx.activity.result.ActivityResult) -> Unit) =
+            done(androidx.activity.result.ActivityResult(android.app.Activity.RESULT_CANCELED, null))
+    }
+
+    open class TakePicture : ActivityResultContract<Uri, Boolean>() {
         override fun run(input: Uri, done: (Boolean) -> Unit) = done(false)
     }
 
-    class RequestPermission : ActivityResultContract<String, Boolean>() {
+    open class RequestPermission : ActivityResultContract<String, Boolean>() {
         override fun run(input: String, done: (Boolean) -> Unit) = done(true)
     }
 
-    class RequestMultiplePermissions : ActivityResultContract<Array<String>, Map<String, Boolean>>() {
+    open class RequestMultiplePermissions : ActivityResultContract<Array<String>, Map<String, Boolean>>() {
         override fun run(input: Array<String>, done: (Map<String, Boolean>) -> Unit) = done(input.associateWith { true })
     }
 }

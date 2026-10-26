@@ -52,6 +52,24 @@ open class Paint(flags: Int = 0) {
     fun measureText(text: String): Float = Canvas.font(this).let { f ->
         java.awt.Canvas().getFontMetrics(f).stringWidth(text).toFloat()
     }
+    fun measureText(text: CharSequence, start: Int, end: Int): Float = measureText(text.subSequence(start, end).toString())
+    fun measureText(text: CharArray, index: Int, count: Int): Float = measureText(String(text, index, count))
+
+    /** Font ascent/descent like the phone (ascent negative). */
+    class FontMetrics { @JvmField var ascent = 0f; @JvmField var descent = 0f; @JvmField var top = 0f; @JvmField var bottom = 0f; @JvmField var leading = 0f }
+    val fontMetrics: FontMetrics get() {
+        val fm = java.awt.Canvas().getFontMetrics(Canvas.font(this))
+        return FontMetrics().apply { ascent = -fm.ascent.toFloat(); descent = fm.descent.toFloat(); top = -fm.maxAscent.toFloat(); bottom = fm.maxDescent.toFloat(); leading = fm.leading.toFloat() }
+    }
+    fun getFontMetrics(out: FontMetrics?): Float { val m = fontMetrics; out?.let { it.ascent = m.ascent; it.descent = m.descent; it.top = m.top; it.bottom = m.bottom; it.leading = m.leading }; return m.descent - m.ascent + m.leading }
+    fun getTextBounds(text: String, start: Int, end: Int, bounds: Rect) {
+        val f = Canvas.font(this)
+        val r = f.getStringBounds(text.substring(start, end), java.awt.font.FontRenderContext(null, true, true))
+        bounds.set(r.x.toInt(), r.y.toInt(), (r.x + r.width).toInt(), (r.y + r.height).toInt())
+    }
+    var letterSpacing = 0f
+    fun setShadowLayer(radius: Float, dx: Float, dy: Float, color: Int) {}
+    fun clearShadowLayer() {}
 }
 
 open class MaskFilter
@@ -189,6 +207,8 @@ class Path {
     fun addRect(l: Float, t: Float, r: Float, b: Float, dir: Direction) { shape.append(java.awt.geom.Rectangle2D.Float(l, t, r - l, b - t), false); open = true }
     fun addCircle(x: Float, y: Float, r: Float, dir: Direction) { shape.append(java.awt.geom.Ellipse2D.Float(x - r, y - r, 2 * r, 2 * r), false); open = true }
     fun addOval(rect: RectF, dir: Direction) { shape.append(java.awt.geom.Ellipse2D.Float(rect.left, rect.top, rect.width(), rect.height()), false); open = true }
+    fun addRoundRect(r: RectF, rx: Float, ry: Float, dir: Direction) { shape.append(java.awt.geom.RoundRectangle2D.Float(r.left, r.top, r.width(), r.height(), rx * 2, ry * 2), false); open = true }
+    fun addRoundRect(l: Float, t: Float, r: Float, b: Float, rx: Float, ry: Float, dir: Direction) = addRoundRect(RectF(l, t, r, b), rx, ry, dir)
     fun addPath(p: Path) { shape.append(p.shape, false); open = true }
     fun transform(m: Matrix) {
         if (m.isAffine) shape.transform(java.awt.geom.AffineTransform(m.v[0], m.v[3], m.v[1], m.v[4], m.v[2], m.v[5]))
