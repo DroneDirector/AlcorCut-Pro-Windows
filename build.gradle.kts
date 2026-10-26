@@ -60,6 +60,7 @@ dependencies {
     localCompiler("org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.2.20")
 }
 tasks.register<Copy>("exportClasspath") {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(configurations.compileClasspath)
     into(layout.buildDirectory.dir("classpath"))
     from(localCompiler) { into("compiler") }
