@@ -25,6 +25,10 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     // AI models (MIT licence)
     implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
+    // Network storage (NAS / SMB shares): smbj (Apache 2.0) and smbj-rpc for the share list (BSD 3-Clause).
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.84")
+    implementation("com.hierynomus:smbj:0.13.0") { exclude(group = "org.bouncycastle", module = "bcprov-jdk18on") }
+    implementation("com.rapid7.client:dcerpc:0.12.13") { exclude(group = "org.bouncycastle", module = "bcprov-jdk18on") }
 }
 
 compose.desktop {
