@@ -13,8 +13,11 @@ class Face(
     val headEulerAngleY: Float = 0f,
     val headEulerAngleZ: Float = 0f,
     val trackingId: Int? = null,
+    private val contours: Map<Int, FaceContour> = emptyMap(),
 ) {
     fun getLandmark(type: Int): FaceLandmark? = marks[type]
+    fun getContour(type: Int): FaceContour? = contours[type]
+    val allContours: List<FaceContour> get() = contours.values.toList()
     val allLandmarks: List<FaceLandmark> get() = marks.values.toList()
 }
 
@@ -24,6 +27,16 @@ class FaceLandmark(val landmarkType: Int, val position: android.graphics.PointF)
         const val MOUTH_BOTTOM = 0; const val LEFT_CHEEK = 1; const val LEFT_EAR = 3; const val LEFT_EYE = 4
         const val MOUTH_LEFT = 5; const val NOSE_BASE = 6; const val RIGHT_CHEEK = 7; const val RIGHT_EAR = 9
         const val RIGHT_EYE = 10; const val MOUTH_RIGHT = 11
+    }
+}
+
+/** An outline on a face. On Windows these are drawn from the five points YuNet finds (eyes, nose, mouth corners). */
+class FaceContour(val faceContourType: Int, val points: List<android.graphics.PointF>) {
+    companion object {
+        const val FACE = 1; const val LEFT_EYEBROW_TOP = 2; const val LEFT_EYEBROW_BOTTOM = 3; const val RIGHT_EYEBROW_TOP = 4
+        const val RIGHT_EYEBROW_BOTTOM = 5; const val LEFT_EYE = 6; const val RIGHT_EYE = 7; const val UPPER_LIP_TOP = 8
+        const val UPPER_LIP_BOTTOM = 9; const val LOWER_LIP_TOP = 10; const val LOWER_LIP_BOTTOM = 11; const val NOSE_BRIDGE = 12
+        const val NOSE_BOTTOM = 13; const val LEFT_CHEEK = 14; const val RIGHT_CHEEK = 15
     }
 }
 
@@ -143,8 +156,46 @@ internal object YuNet {
                 FaceLandmark.LEFT_CHEEK to FaceLandmark(FaceLandmark.LEFT_CHEEK, android.graphics.PointF(le.x + ex * 0.25f, cheekY + eyeDist * 0.2f)),
                 FaceLandmark.RIGHT_CHEEK to FaceLandmark(FaceLandmark.RIGHT_CHEEK, android.graphics.PointF(re.x - ex * 0.25f, cheekY + eyeDist * 0.2f)),
             )
-            Face(box, marks, headEulerAngleY = yaw, headEulerAngleZ = roll)
+            Face(box, marks, headEulerAngleY = yaw, headEulerAngleZ = roll, contours = contours(re, le, ml, mr))
         }
+    }
+
+    /**
+     * Face outlines in proportion to the eyes and mouth: the face's own frame has its origin between
+     * the eyes, x along the eyes (picture-left eye at -0.5, the other at +0.5) and y down the face.
+     */
+    private fun contours(re: android.graphics.PointF, le: android.graphics.PointF, ml: android.graphics.PointF, mr: android.graphics.PointF): Map<Int, FaceContour> {
+        // Picture-left eye first.
+        val (e1, e2) = if (re.x <= le.x) re to le else le to re
+        val d = kotlin.math.hypot(e2.x - e1.x, e2.y - e1.y).coerceAtLeast(1f)
+        val ux = (e2.x - e1.x) / d; val uy = (e2.y - e1.y) / d
+        val mx = (e1.x + e2.x) / 2f; val my = (e1.y + e2.y) / 2f
+        fun pt(u: Float, v: Float) = android.graphics.PointF(mx + (u * ux - v * uy) * d, my + (u * uy + v * ux) * d)
+        fun frame(p: android.graphics.PointF): Pair<Float, Float> { val dx = (p.x - mx) / d; val dy = (p.y - my) / d; return (dx * ux + dy * uy) to (-dx * uy + dy * ux) }
+        val (m1u, m1v) = frame(if (ml.x <= mr.x) ml else mr); val (m2u, m2v) = frame(if (ml.x <= mr.x) mr else ml)
+        val mouthV = ((m1v + m2v) / 2f).coerceIn(0.6f, 1.6f)
+        fun ellipse(cu: Float, cv: Float, a: Float, b: Float, n: Int) = List(n) { i -> val t = 2.0 * Math.PI * i / n; pt(cu + a * kotlin.math.cos(t).toFloat(), cv + b * kotlin.math.sin(t).toFloat()) }
+        val top = -1.0f; val chin = mouthV + 0.75f
+        val oval = ellipse(0f, (top + chin) / 2f, 1.02f, (chin - top) / 2f, 36)
+        fun eye(cu: Float) = ellipse(cu, 0f, 0.23f, 0.085f, 16)
+        fun browTop(cu: Float, out: Float) = List(5) { i -> val t = i / 4f * 2f - 1f; pt(cu + out * 0.03f + t * 0.28f, -0.33f - 0.07f * (1f - t * t)) }
+        fun browBot(cu: Float, out: Float) = List(5) { i -> val t = i / 4f * 2f - 1f; pt(cu + out * 0.03f + t * 0.26f, -0.26f - 0.05f * (1f - t * t)) }
+        fun lip(n: Int, h: Float, bowl: Float) = List(n) { i ->
+            val t = i / (n - 1f); val u = m1u + (m2u - m1u) * t; val base = m1v + (m2v - m1v) * t
+            pt(u, base + h * kotlin.math.sin(Math.PI * t).toFloat().let { s -> Math.pow(s.toDouble(), bowl.toDouble()).toFloat() })
+        }
+        // ML Kit's "left" is the person's own left: the eye on the picture's right.
+        return mapOf(
+            FaceContour.FACE to oval,
+            FaceContour.LEFT_EYE to eye(0.5f), FaceContour.RIGHT_EYE to eye(-0.5f),
+            FaceContour.LEFT_EYEBROW_TOP to browTop(0.5f, 1f), FaceContour.LEFT_EYEBROW_BOTTOM to browBot(0.5f, 1f),
+            FaceContour.RIGHT_EYEBROW_TOP to browTop(-0.5f, -1f), FaceContour.RIGHT_EYEBROW_BOTTOM to browBot(-0.5f, -1f),
+            FaceContour.UPPER_LIP_TOP to lip(11, -0.11f, 0.7f), FaceContour.UPPER_LIP_BOTTOM to lip(9, -0.015f, 1f),
+            FaceContour.LOWER_LIP_TOP to lip(9, 0.015f, 1f), FaceContour.LOWER_LIP_BOTTOM to lip(9, 0.15f, 0.8f),
+            FaceContour.NOSE_BRIDGE to listOf(pt(0f, 0f), pt(0f, mouthV * 0.6f)),
+            FaceContour.NOSE_BOTTOM to listOf(pt(-0.15f, mouthV * 0.7f), pt(0f, mouthV * 0.72f), pt(0.15f, mouthV * 0.7f)),
+            FaceContour.LEFT_CHEEK to listOf(pt(0.55f, mouthV * 0.6f)), FaceContour.RIGHT_CHEEK to listOf(pt(-0.55f, mouthV * 0.6f)),
+        ).mapValues { (k, v) -> FaceContour(k, v) }
     }
 
     private fun iou(a: Hit, b: Hit): Float {

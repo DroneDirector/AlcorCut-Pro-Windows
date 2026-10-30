@@ -47,6 +47,7 @@ take camera/CameraModel.kt CaptureMode
 # AI (models run with ONNX Runtime / the phone's AI runtime layer)
 copy editor/AiDenoiser.kt
 copy editor/AiSegment.kt
+copy editor/PeopleMask.kt
 copy editor/ObjectRemoval.kt
 drop editor/ObjectRemoval.kt outFile make
 copy editor/Cull.kt

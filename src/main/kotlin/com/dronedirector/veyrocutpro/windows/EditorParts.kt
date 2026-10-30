@@ -17,13 +17,6 @@ object AvifWriter {
     fun write(src: Bitmap, out: File, quality: Int): Boolean = false
 }
 
-/** People masks (face and body parts) come with the AI models for Windows. */
-object PeopleMask {
-    val PARTS = listOf("Whole person", "Face skin", "Body skin", "Eye whites", "Irises", "Eyebrows", "Lips", "Teeth", "Hair", "Clothes")
-    @Volatile var lastFaces = -1
-    fun make(context: Context, src: Bitmap, parts: List<Int>): Bitmap? = null
-}
-
 /** Voice isolation (video editor). */
 class VoiceIsolator {
     companion object {
