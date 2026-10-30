@@ -20,7 +20,12 @@ class WinRecorder(
     val file: File, val width: Int, val height: Int, private val fps: Float, bitrate: Int, hevc: Boolean,
     private val withAudio: Boolean, private val gainDb: () -> Int, private val limiter: () -> Boolean,
     private val onLevel: (Float, Float, Float) -> Unit, private val timing: Int = 0, outFps: Float = 30f,
+    /** Also save the sound uncompressed as a WAV next to the clip (24-bit when the microphone gives it). */
+    private val wav: Boolean = false,
+    /** Cut the low rumble of wind and handling noise (high-pass at 80 Hz). */
+    private val windFilter: Boolean = false,
 ) {
+    @Volatile var wavFile: File? = null; private set
     private val fpsNum = if (timing == 0) Math.round(fps * 1000) else Math.round(outFps * 1000)
     private val h: Long
     private val rate = 48_000
@@ -75,45 +80,90 @@ class WinRecorder(
     }
 
     private fun recordAudio() {
-        val rec = android.media.AudioRecord(android.media.MediaRecorder.AudioSource.CAMCORDER, rate, android.media.AudioFormat.CHANNEL_IN_STEREO, android.media.AudioFormat.ENCODING_PCM_16BIT, 1 shl 15)
-        if (rec.state != android.media.AudioRecord.STATE_INITIALIZED) { error = "No microphone found — recording without sound"; return }
-        val ch = rec.channelCount
-        val n = rate / 50 * ch                          // 20 ms
-        val raw = ShortArray(n)
-        val out = ByteArray(rate / 50 * 4)
+        // 24-bit straight from the microphone when the WAV is wanted and Windows offers it; else 16-bit.
+        var line24: javax.sound.sampled.TargetDataLine? = null
+        if (wav) line24 = try {
+            val f = javax.sound.sampled.AudioFormat(rate.toFloat(), 24, 2, true, false)
+            val info = javax.sound.sampled.DataLine.Info(javax.sound.sampled.TargetDataLine::class.java, f)
+            val m = android.media.AudioRecord.preferredInput?.let { n -> javax.sound.sampled.AudioSystem.getMixerInfo().firstOrNull { it.name == n } }
+            ((if (m != null) javax.sound.sampled.AudioSystem.getMixer(m).getLine(info) else javax.sound.sampled.AudioSystem.getLine(info)) as javax.sound.sampled.TargetDataLine).also { it.open(f, rate / 5 * 6) }
+        } catch (_: Throwable) { null }
+        val rec = if (line24 == null) android.media.AudioRecord(android.media.MediaRecorder.AudioSource.CAMCORDER, rate, android.media.AudioFormat.CHANNEL_IN_STEREO, android.media.AudioFormat.ENCODING_PCM_16BIT, 1 shl 15) else null
+        if (line24 == null && rec?.state != android.media.AudioRecord.STATE_INITIALIZED) { error = "No microphone found — recording without sound"; return }
+        val ch = if (line24 != null) 2 else rec!!.channelCount
+        val bits = if (line24 != null) 24 else 16
+        val frames20 = rate / 50
+        val raw16 = ShortArray(frames20 * ch)
+        val raw24 = ByteArray(frames20 * 6)
+        val x = FloatArray(frames20 * 2)
+        val out = ByteArray(frames20 * 4)
+        var wavOut: java.io.RandomAccessFile? = null
+        var wavBytes = 0L
+        if (wav) try {
+            val wf = File(file.path.substringBeforeLast('.') + ".wav"); wavFile = wf
+            wavOut = java.io.RandomAccessFile(wf, "rw").also { it.setLength(0); it.write(ByteArray(44)) }
+        } catch (_: Throwable) { wavOut = null }
+        // High-pass filter state (per channel).
+        val hpA = Math.exp(-2.0 * Math.PI * 80.0 / rate).toFloat()
+        val hpX = FloatArray(2); val hpY = FloatArray(2)
         var samples = 0L
         var started = false
         try {
-            rec.startRecording()
+            line24?.start(); rec?.startRecording()
             while (running) {
-                val got = rec.read(raw, 0, n)
-                if (got <= 0) continue
+                val n: Int
+                if (line24 != null) {
+                    val got = line24.read(raw24, 0, raw24.size); if (got <= 0) continue
+                    n = got / 6
+                    for (i in 0 until n * 2) { val o = i * 3; x[i] = (((raw24[o].toInt() and 0xFF) or ((raw24[o + 1].toInt() and 0xFF) shl 8) or (raw24[o + 2].toInt() shl 16))) / 8388608f }
+                } else {
+                    val got = rec!!.read(raw16, 0, raw16.size); if (got <= 0) continue
+                    n = got / ch
+                    for (i in 0 until n) for (c in 0..1) x[i * 2 + c] = raw16[i * ch + (if (ch == 2) c else 0)] / 32768f
+                }
                 if (paused) continue
                 if (!started) { started = true; samples = now100ns() * rate / 10_000_000 }
-                val frames = got / ch
                 val g = 10.0.pow(gainDb() / 20.0).toFloat(); val lim = limiter()
                 var accL = 0.0; var accR = 0.0
-                for (i in 0 until frames) {
-                    for (c in 0..1) {
-                        var x = raw[i * ch + (if (ch == 2) c else 0)] / 32768f * g
-                        if (lim) { val a = abs(x); if (a > 0.8f) x = (0.8f + 0.2f * tanh((a - 0.8f) / 0.2f)) * if (x < 0) -1f else 1f }
-                        x = x.coerceIn(-1f, 0.99997f)
-                        if (c == 0) accL += (x * x).toDouble() else accR += (x * x).toDouble()
-                        val v = (x * 32767f).toInt()
-                        out[i * 4 + c * 2] = v.toByte(); out[i * 4 + c * 2 + 1] = (v shr 8).toByte()
+                for (i in 0 until n) for (c in 0..1) {
+                    var v = x[i * 2 + c]
+                    if (windFilter) { val y = hpA * (hpY[c] + v - hpX[c]); hpX[c] = v; hpY[c] = y; v = y }
+                    v *= g
+                    if (lim) { val a = abs(v); if (a > 0.8f) v = (0.8f + 0.2f * tanh((a - 0.8f) / 0.2f)) * if (v < 0) -1f else 1f }
+                    v = v.coerceIn(-1f, 0.99997f)
+                    x[i * 2 + c] = v
+                    if (c == 0) accL += (v * v).toDouble() else accR += (v * v).toDouble()
+                    val s16 = (v * 32767f).toInt()
+                    out[i * 4 + c * 2] = s16.toByte(); out[i * 4 + c * 2 + 1] = (s16 shr 8).toByte()
+                }
+                wavOut?.let { w ->
+                    val bpsm = bits / 8
+                    val buf = ByteArray(n * 2 * bpsm)
+                    for (i in 0 until n * 2) {
+                        val s = if (bits == 24) (x[i] * 8388607f).toInt() else (x[i] * 32767f).toInt()
+                        for (k in 0 until bpsm) buf[i * bpsm + k] = (s shr (8 * k)).toByte()
                     }
+                    w.write(buf); wavBytes += buf.size
                 }
                 val ts = samples * 10_000_000 / rate
-                val dur = frames.toLong() * 10_000_000 / rate
-                MfNative.recAudio(h, out, frames * 4, ts, dur)
-                samples += frames
-                val l = sqrt(accL / frames).toFloat(); val r = sqrt(accR / frames).toFloat()
-                onLevel((l + r) / 2f, l, r)
+                MfNative.recAudio(h, out, n * 4, ts, n.toLong() * 10_000_000 / rate)
+                samples += n
+                onLevel(sqrt((accL + accR) / (2 * n)).toFloat(), sqrt(accL / n).toFloat(), sqrt(accR / n).toFloat())
             }
         } catch (_: Throwable) {
         } finally {
-            try { rec.stop() } catch (_: Throwable) {}
-            rec.release()
+            try { line24?.stop(); line24?.close() } catch (_: Throwable) {}
+            try { rec?.stop() } catch (_: Throwable) {}
+            rec?.release()
+            wavOut?.let { w ->
+                try {
+                    val hdr = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                    hdr.put("RIFF".toByteArray()).putInt((36 + wavBytes).toInt()).put("WAVE".toByteArray())
+                    hdr.put("fmt ".toByteArray()).putInt(16).putShort(1).putShort(2).putInt(rate).putInt(rate * 2 * bits / 8).putShort((2 * bits / 8).toShort()).putShort(bits.toShort())
+                    hdr.put("data".toByteArray()).putInt(wavBytes.toInt())
+                    w.seek(0); w.write(hdr.array()); w.close()
+                } catch (_: Throwable) {}
+            }
         }
     }
 

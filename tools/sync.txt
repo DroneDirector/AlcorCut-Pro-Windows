@@ -105,6 +105,7 @@ copy ui/Guide.kt
 copy ui/Licenses.kt
 copy ui/Tour.kt
 copy ui/SettingsPanel.kt
+edit ui/SettingsPanel.kt SettingsPanel.py
 copy ui/HomeScreen.kt
 copy ui/CloudAiSettings.kt
 copy ui/Backup.kt

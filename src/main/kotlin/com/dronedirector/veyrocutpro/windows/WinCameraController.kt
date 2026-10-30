@@ -152,6 +152,9 @@ class ProCameraController(private val context: Context) {
     @Volatile private var recordPipe: ColorPipe? = null
     @Volatile private var digitalZoom = 1f
     private var lastShown = 0L
+    private var cropBuf: IntArray? = null
+    @Volatile private var cropX = 0
+    @Volatile private var cropY = 0
     private var frameNo = 0L
     private var lapseLast = 0L
     @Volatile private var ndFrames = 0
@@ -322,11 +325,18 @@ class ProCameraController(private val context: Context) {
         if (nd > 1 && st.mode.isNormalVideo) blend(toRecord, n, nd)
         if (CaptureExtras.titleOn && CaptureExtras.titleText.isNotBlank() && recorder != null) drawTitle(toRecord, w, h)
         val s = st
-        recorder?.let { r ->
+        recorder?.let { r0 ->
+            // The frame guide's shape: only the middle part goes into the clip.
+            val r = r0
+            val frame = if (r.width != w || r.height != h) {
+                val cb = cropBuf?.takeIf { it.size == r.width * r.height } ?: IntArray(r.width * r.height).also { cropBuf = it }
+                for (y in 0 until r.height) System.arraycopy(toRecord, (y + cropY) * w + cropX, cb, y * r.width, r.width)
+                cb
+            } else toRecord
             when {
-                s.mode == CaptureMode.TIMELAPSE -> { val now = System.currentTimeMillis(); if (now - lapseLast >= s.lapseIntervalMs) { lapseLast = now; r.frame(toRecord); set { it.copy(lapseFrames = r.frames + 1) } } }
-                s.mode == CaptureMode.HYPERLAPSE -> if (frameNo % s.hyperSpeed.coerceAtLeast(1) == 0L) { r.frame(toRecord); set { it.copy(lapseFrames = r.frames + 1) } }
-                else -> r.frame(toRecord)
+                s.mode == CaptureMode.TIMELAPSE -> { val now = System.currentTimeMillis(); if (now - lapseLast >= s.lapseIntervalMs) { lapseLast = now; r.frame(frame); set { it.copy(lapseFrames = r.frames + 1) } } }
+                s.mode == CaptureMode.HYPERLAPSE -> if (frameNo % s.hyperSpeed.coerceAtLeast(1) == 0L) { r.frame(frame); set { it.copy(lapseFrames = r.frames + 1) } }
+                else -> r.frame(frame)
             }
         }
         val out = if (pp === rp) toRecord else { pp?.apply(src, shown, n) ?: System.arraycopy(src, 0, shown, 0, n); shown }
@@ -1185,12 +1195,19 @@ class ProCameraController(private val context: Context) {
         val file = java.io.File(uri.path!!)
         val fps = c.current?.fps ?: s.fps.toFloat()
         val withAudio = s.mode.isNormalVideo && s.audio
-        val w = c.width and 1.inv(); val h = c.height and 1.inv()
+        // Record in the frame guide's shape: the middle of the picture, cut to the guide.
+        val g = s.guide.ratio
+        val have = c.width.toFloat() / c.height
+        val (w, h) = if (CaptureExtras.recordAspect && g > 0f && abs(g - have) > 0.01f) {
+            if (g > have) c.width to (c.width / g).toInt() else (c.height * g).toInt() to c.height
+        } else c.width to c.height
+        val rw = w and 1.inv(); val rh = h and 1.inv()
+        cropX = (c.width - rw) / 2; cropY = (c.height - rh) / 2
         if (!monitorWhileRecording) audioMeter.stopMonitoring()
         val rec = try {
-            WinRecorder(file, c.width, c.height, fps, bitrate(s, w, h, if (lapse) 30f else fps), s.videoCodec == VideoCodec.HEVC, withAudio,
+            WinRecorder(file, rw, rh, fps, bitrate(s, rw, rh, if (lapse) 30f else fps), s.videoCodec == VideoCodec.HEVC, withAudio,
                 { st.audioGainDb }, { st.audioLimiter }, { rms, l, r -> if (!monitorWhileRecording) audioMeter.pushProcessed(rms); set { it.copy(audioLevel = rms) } },
-                timing = if (lapse) 1 else if (slow) 2 else 0)
+                timing = if (lapse) 1 else if (slow) 2 else 0, wav = withAudio && CaptureExtras.wavAudio, windFilter = CaptureExtras.windFilter)
         } catch (t: Throwable) {
             // No HEVC encoder on this PC: H.264 instead.
             if (s.videoCodec == VideoCodec.HEVC) {
@@ -1235,6 +1252,7 @@ class ProCameraController(private val context: Context) {
                 if (!ok) toast("Couldn't add the timecode to this clip")
             }
             if (uri != null && CaptureExtras.slateOn) { val snap = st; io.execute { Slate.log(context, uri, snap, true) } }
+            if (uri != null) r.wavFile?.takeIf { it.length() > 44 }?.let { toast("WAV saved next to the clip") }
             set { it.copy(processing = false, lastMedia = uri ?: it.lastMedia) }
             when {
                 uri == null -> toast("Nothing recorded — keep recording a little longer")

@@ -150,7 +150,7 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                         x.wavAudio,
                     ) { c.setWavAudio(!x.wavAudio) }
                     else Text("24-bit audio (WAV): needs a more powerful phone (memory, processor and graphics).", color = Pro.Dim, fontSize = 12.sp)
-                    ToggleRow(
+                    if (false) ToggleRow(
                         "NTSC frame rates",
                         "24, 30 and 60 fps clips become 23.976, 29.97 and 59.94 fps (picture and sound slowed by 0.1 % after recording), for broadcast and US workflows",
                         x.ntsc,
@@ -172,12 +172,12 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                     ChoiceRow("Anti-flicker", listOf(0, 1, 2, 3), x.antiFlicker, { listOf("AUTO", "50 HZ", "60 HZ", "OFF")[it] }) { c.setAntiFlicker(it) }
                     Text("Stops banding under mains lights in photos and videos: 50 Hz in Europe, Africa, most of Asia; 60 Hz in the Americas.", color = Pro.Dim, fontSize = 12.sp)
                     ChoiceRow("Timecode", listOf(0, 1), x.timecode, { if (it == 0) "OFF" else "TIME OF DAY" }) { x.timecode = it; x.save(ctx) }
-                    ToggleRow("Editing proxy", "Makes a small copy of each clip after recording, so the video editor plays it smoothly straight away", x.proxy) { x.proxy = !x.proxy; x.save(ctx) }
-                    ToggleRow("Front + back camera", "Records the back camera with the front camera in a corner, in one video (phones that can run both together)", x.dualCam) { c.setDualCam(!x.dualCam) }
-                    ChoiceRow("Pre-record", listOf(0, 3, 5, 10), x.preRecordSec, { if (it == 0) "OFF" else "${it}s" }) {
+                    if (false) ToggleRow("Editing proxy", "Makes a small copy of each clip after recording, so the video editor plays it smoothly straight away", x.proxy) { x.proxy = !x.proxy; x.save(ctx) }
+                    if (false) ToggleRow("Front + back camera", "Records the back camera with the front camera in a corner, in one video (phones that can run both together)", x.dualCam) { c.setDualCam(!x.dualCam) }
+                    if (false) ChoiceRow("Pre-record", listOf(0, 3, 5, 10), x.preRecordSec, { if (it == 0) "OFF" else "${it}s" }) {
                         x.preRecordSec = it; x.save(ctx); c.refreshPreRecord()
                     }
-                    Text("Keeps the last few seconds before you press record, so you never miss the moment. The camera keeps a temporary recording running while you wait (uses a little more battery).", color = Pro.Dim, fontSize = 12.sp)
+                    if (false) Text("Keeps the last few seconds before you press record, so you never miss the moment. The camera keeps a temporary recording running while you wait (uses a little more battery).", color = Pro.Dim, fontSize = 12.sp)
                 }
                 if (s.stabilizationSupported || c.gyroAvailable) {
                     val modes = buildList { add(0); if (s.stabilizationSupported) add(1); if (c.gyroAvailable) add(2) }
@@ -231,12 +231,12 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                     val ctx = androidx.compose.ui.platform.LocalContext.current
                     val x = com.dronedirector.veyrocutpro.camera.CaptureExtras
                     ToggleRow("Wind filter", "Cuts the low rumble of wind and handling noise from recorded sound", x.windFilter) { x.windFilter = !x.windFilter; x.save(ctx) }
-                    ChoiceRow("Voice noise reduction", listOf(0, 1, 2), x.noiseReduce, { listOf("OFF", "LIGHT", "STRONG")[it] }) { x.noiseReduce = it; x.save(ctx) }
-                    Text("Cleans hiss, hum and background noise from the recorded sound so voices stand out. Applied when each clip is saved; Strong is for noisy places.", color = Pro.Dim, fontSize = 12.sp)
+                    if (false) ChoiceRow("Voice noise reduction", listOf(0, 1, 2), x.noiseReduce, { listOf("OFF", "LIGHT", "STRONG")[it] }) { x.noiseReduce = it; x.save(ctx) }
+                    if (false) Text("Cleans hiss, hum and background noise from the recorded sound so voices stand out. Applied when each clip is saved; Strong is for noisy places.", color = Pro.Dim, fontSize = 12.sp)
                     val inputs = androidx.compose.runtime.remember(s.headphones) { c.inputDevices() }
                     Text("Microphones found: " + (inputs.ifEmpty { listOf("phone microphone") }.joinToString(", ")), color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-                    Text("USB and wired microphones are used automatically when plugged in.", color = Pro.Dim, fontSize = 12.sp)
-                    ToggleRow("Bluetooth microphone", "Record with a connected Bluetooth headset's mic (speech quality; works on most phones)", x.micBluetooth) { x.micBluetooth = !x.micBluetooth; x.save(ctx) }
+                    Text("Choose the microphone in Audio hardware (Controls & buttons).", color = Pro.Dim, fontSize = 12.sp)
+                    if (false) ToggleRow("Bluetooth microphone", "Record with a connected Bluetooth headset's mic (speech quality; works on most phones)", x.micBluetooth) { x.micBluetooth = !x.micBluetooth; x.save(ctx) }
                 }
                 ToggleRow(
                     "Headphone monitoring",
@@ -264,7 +264,6 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
             SettingsGroup("view", "Viewfinder & monitoring", "Histogram, level, focus peaking, false colour, zebras, monitoring LUT, focus magnifier, safe areas, scopes, shutter angle, anamorphic") {
                 Section("COMPOSITION")
                 ToggleRow("Histogram", "Pro modes: live brightness graph with clipping warnings", s.showHistogram) { c.toggleHistogram() }
-                ToggleRow("Level", "Horizon line, turns green when straight", s.showLevel) { c.toggleLevel() }
                 ToggleRow("Focus peaking", "Pro modes: highlights in-focus edges in red", s.peaking) { c.togglePeaking() }
                 ToggleRow("False colour", "Pro modes: exposure as colour bands (green = mid grey, pink = skin, red = clipped)", s.falseColor) { c.toggleFalseColor() }
                 ToggleRow("Zebras", "Pro modes: stripes over areas brighter than ${s.zebraLevel}%", s.zebras) { c.toggleZebras() }
@@ -335,7 +334,7 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
 
             SettingsGroup("controls", "Controls & buttons", "Side buttons, shutter sound, separate focus / exposure, Fn button, C1–C3 sync, simple layout, overlay positions") {
                 Section("CONTROLS")
-                run {
+                if (false) run {
                     var side by remember { mutableStateOf(com.dronedirector.veyrocutpro.camera.SideKeys.get(sctx)) }
                     Text("Side buttons (volume up / down)", color = Color.White, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))
                     Text(when (side) { 0 -> "They just change the volume."; 2 -> "Volume up zooms in, volume down zooms out."; else -> "Take a photo, or start / stop recording — whichever mode is on." }, color = Pro.Dim, fontSize = 12.sp)
