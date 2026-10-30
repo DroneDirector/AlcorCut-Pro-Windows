@@ -11,6 +11,8 @@
 #include <ksmedia.h>
 #include <codecapi.h>
 #include <wmcodecdsp.h>
+#include <PortableDeviceApi.h>
+#include <PortableDevice.h>
 #include <jni.h>
 #include <string>
 #include <vector>
@@ -727,6 +729,162 @@ JNIEXPORT void JNICALL JN(decClose)(JNIEnv* env, jclass, jlong h) {
     Dec* d = (Dec*)h; if (!d) return;
     { std::lock_guard<std::mutex> g(d->lock); release(d->t); }
     delete d;
+}
+
+// ------------------------------------------------------------------ tethered cameras (PTP through Windows Portable Devices)
+
+/** Cameras Windows sees as portable devices: "id \u0001 name \u0001 maker". */
+JNIEXPORT jobjectArray JNICALL JN(ptpList)(JNIEnv* env, jclass) {
+    com();
+    std::vector<std::string> out;
+    IPortableDeviceManager* m = nullptr;
+    if (SUCCEEDED(CoCreateInstance(CLSID_PortableDeviceManager, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&m)))) {
+        m->RefreshDeviceList();
+        DWORD n = 0;
+        if (SUCCEEDED(m->GetDevices(nullptr, &n)) && n > 0) {
+            std::vector<PWSTR> ids(n);
+            if (SUCCEEDED(m->GetDevices(ids.data(), &n))) {
+                for (DWORD i = 0; i < n; i++) {
+                    WCHAR name[256] = L""; DWORD len = 256; m->GetDeviceFriendlyName(ids[i], name, &len);
+                    WCHAR maker[256] = L""; DWORD ml = 256; m->GetDeviceManufacturer(ids[i], maker, &ml);
+                    out.push_back(utf8(ids[i]) + "\x01" + utf8(name) + "\x01" + utf8(maker));
+                    CoTaskMemFree(ids[i]);
+                }
+            }
+        }
+        m->Release();
+    }
+    return strings(env, out);
+}
+
+JNIEXPORT jlong JNICALL JN(ptpOpen)(JNIEnv* env, jclass, jstring jid) {
+    com();
+    std::wstring id = wide(env, jid);
+    IPortableDevice* d = nullptr; IPortableDeviceValues* ci = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_PortableDeviceFTM, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d));
+    if (SUCCEEDED(hr)) hr = CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&ci));
+    if (SUCCEEDED(hr)) {
+        ci->SetStringValue(WPD_CLIENT_NAME, L"AlcorCut Pro");
+        ci->SetUnsignedIntegerValue(WPD_CLIENT_MAJOR_VERSION, 1);
+        ci->SetUnsignedIntegerValue(WPD_CLIENT_MINOR_VERSION, 0);
+        ci->SetUnsignedIntegerValue(WPD_CLIENT_REVISION, 0);
+        ci->SetUnsignedIntegerValue(WPD_CLIENT_DESIRED_ACCESS, GENERIC_READ | GENERIC_WRITE);
+        hr = d->Open(id.c_str(), ci);
+    }
+    release(ci);
+    if (FAILED(hr)) { fail("The camera couldn't be opened (close other camera apps)", hr); release(d); return 0; }
+    return (jlong)d;
+}
+
+static HRESULT cmd(IPortableDevice* d, const PROPERTYKEY& key, IPortableDeviceValues* in, IPortableDeviceValues** out) {
+    in->SetGuidValue(WPD_PROPERTY_COMMON_COMMAND_CATEGORY, key.fmtid);
+    in->SetUnsignedIntegerValue(WPD_PROPERTY_COMMON_COMMAND_ID, key.pid);
+    HRESULT hr = d->SendCommand(0, in, out);
+    if (SUCCEEDED(hr) && *out) { HRESULT inner = S_OK; if (SUCCEEDED((*out)->GetErrorValue(WPD_PROPERTY_COMMON_HRESULT, &inner))) hr = inner; }
+    return hr;
+}
+
+static void response(IPortableDeviceValues* r, std::string& out) {
+    ULONG code = 0; r->GetUnsignedIntegerValue(WPD_PROPERTY_MTP_EXT_RESPONSE_CODE, &code);
+    IPortableDevicePropVariantCollection* ps = nullptr; DWORD n = 0;
+    if (SUCCEEDED(r->GetIPortableDevicePropVariantCollectionValue(WPD_PROPERTY_MTP_EXT_RESPONSE_PARAMS, &ps)) && ps) ps->GetCount(&n);
+    out.push_back((char)(code & 0xFF)); out.push_back((char)((code >> 8) & 0xFF)); out.push_back((char)n);
+    for (DWORD i = 0; i < n; i++) {
+        PROPVARIANT v; PropVariantInit(&v); ULONG x = 0;
+        if (SUCCEEDED(ps->GetAt(i, &v))) { x = v.ulVal; PropVariantClear(&v); }
+        for (int k = 0; k < 4; k++) out.push_back((char)((x >> (8 * k)) & 0xFF));
+    }
+    release(ps);
+}
+
+/**
+ * One PTP operation: [op] with up to 5 [params]; [data] is sent to the camera when given, else when
+ * [read] the camera's data is read. Returns code (2 bytes), param count (1), params (4 each), then data.
+ */
+JNIEXPORT jbyteArray JNICALL JN(ptpCommand)(JNIEnv* env, jclass, jlong h, jint op, jintArray jparams, jbyteArray data, jboolean read) {
+    com();
+    IPortableDevice* d = (IPortableDevice*)h; if (!d) return nullptr;
+    IPortableDeviceValues* in = nullptr; IPortableDeviceValues* res = nullptr; IPortableDevicePropVariantCollection* ps = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&in));
+    if (SUCCEEDED(hr)) hr = CoCreateInstance(CLSID_PortableDevicePropVariantCollection, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&ps));
+    if (FAILED(hr)) { release(in); release(ps); fail("Windows Portable Devices isn't available", hr); return nullptr; }
+    jsize np = jparams ? env->GetArrayLength(jparams) : 0;
+    if (np > 0) {
+        jint* pp = env->GetIntArrayElements(jparams, nullptr);
+        for (jsize i = 0; i < np; i++) { PROPVARIANT v; PropVariantInit(&v); v.vt = VT_UI4; v.ulVal = (ULONG)pp[i]; ps->Add(&v); }
+        env->ReleaseIntArrayElements(jparams, pp, JNI_ABORT);
+    }
+    in->SetUnsignedIntegerValue(WPD_PROPERTY_MTP_EXT_OPERATION_CODE, (ULONG)op);
+    in->SetIPortableDevicePropVariantCollectionValue(WPD_PROPERTY_MTP_EXT_OPERATION_PARAMS, ps);
+    std::string out; std::string payload;
+    const jsize dn = data ? env->GetArrayLength(data) : 0;
+    if (!data && !read) {
+        hr = cmd(d, WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITHOUT_DATA_PHASE, in, &res);
+        if (SUCCEEDED(hr)) response(res, out);
+    } else {
+        if (data) in->SetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE, (ULONGLONG)dn);
+        hr = cmd(d, data ? WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_WRITE : WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_READ, in, &res);
+        PWSTR ctx = nullptr; ULONGLONG total = 0;
+        if (SUCCEEDED(hr)) hr = res->GetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, &ctx);
+        if (SUCCEEDED(hr) && read) res->GetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE, &total);
+        release(res);
+        if (SUCCEEDED(hr) && data) {
+            jbyte* db = env->GetByteArrayElements(data, nullptr);
+            IPortableDeviceValues* w = nullptr;
+            if (SUCCEEDED(CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&w)))) {
+                w->SetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, ctx);
+                w->SetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_WRITE, (ULONGLONG)dn);
+                w->SetBufferValue(WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, (BYTE*)db, (DWORD)dn);
+                IPortableDeviceValues* wr = nullptr;
+                hr = cmd(d, WPD_COMMAND_MTP_EXT_WRITE_DATA, w, &wr);
+                release(wr); release(w);
+            }
+            env->ReleaseByteArrayElements(data, db, JNI_ABORT);
+        }
+        if (SUCCEEDED(hr) && read) {
+            ULONGLONG left = total; const ULONGLONG chunk = 1 << 20;
+            while (SUCCEEDED(hr) && (left > 0 || total == 0)) {
+                IPortableDeviceValues* rq = nullptr; IPortableDeviceValues* rr = nullptr;
+                if (FAILED(CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&rq)))) break;
+                ULONGLONG want = total == 0 ? chunk : (left < chunk ? left : chunk);
+                std::vector<BYTE> empty((size_t)want);
+                rq->SetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, ctx);
+                rq->SetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_READ, want);
+                rq->SetBufferValue(WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, empty.data(), (DWORD)want);
+                hr = cmd(d, WPD_COMMAND_MTP_EXT_READ_DATA, rq, &rr);
+                ULONGLONG got = 0;
+                if (SUCCEEDED(hr)) {
+                    BYTE* b = nullptr; DWORD bl = 0;
+                    rr->GetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_READ, &got);
+                    if (SUCCEEDED(rr->GetBufferValue(WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, &b, &bl)) && b) { payload.append((char*)b, (size_t)(got < bl ? got : bl)); CoTaskMemFree(b); }
+                }
+                release(rq); release(rr);
+                if (got == 0) break;
+                if (total > 0) left -= got < left ? got : left;
+            }
+        }
+        if (ctx) {
+            IPortableDeviceValues* e = nullptr; IPortableDeviceValues* er = nullptr;
+            if (SUCCEEDED(CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&e)))) {
+                e->SetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, ctx);
+                HRESULT eh = cmd(d, WPD_COMMAND_MTP_EXT_END_DATA_TRANSFER, e, &er);
+                if (SUCCEEDED(eh) && er) response(er, out); else if (SUCCEEDED(hr)) hr = eh;
+                release(er); release(e);
+            }
+            CoTaskMemFree(ctx);
+        }
+        res = nullptr;
+    }
+    release(res); release(in); release(ps);
+    if (FAILED(hr) || out.empty()) { fail("The camera didn't answer", hr); return nullptr; }
+    out += payload;
+    return bytes(env, out);
+}
+
+JNIEXPORT void JNICALL JN(ptpClose)(JNIEnv* env, jclass, jlong h) {
+    com();
+    IPortableDevice* d = (IPortableDevice*)h; if (!d) return;
+    d->Close(); d->Release();
 }
 
 } // extern "C"

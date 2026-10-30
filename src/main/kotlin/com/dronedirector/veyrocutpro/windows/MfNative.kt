@@ -37,6 +37,10 @@ object MfNative {
     @JvmStatic external fun decOpen(): Long
     @JvmStatic external fun decFrame(h: Long, data: ByteArray, ts: Long, dst: IntArray): Long
     @JvmStatic external fun decClose(h: Long)
+    @JvmStatic external fun ptpList(): Array<String>
+    @JvmStatic external fun ptpOpen(id: String): Long
+    @JvmStatic external fun ptpCommand(h: Long, op: Int, params: IntArray?, data: ByteArray?, read: Boolean): ByteArray?
+    @JvmStatic external fun ptpClose(h: Long)
 
     fun error(): String = try { lastError() } catch (_: Throwable) { "" }
 }
