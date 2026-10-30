@@ -16,26 +16,29 @@ jobs:
         with:
           python-version: '3.11'
       - name: Tools
-        run: pip install --quiet "tensorflow-cpu==2.17.*" "tf2onnx==1.16.1" onnx onnxruntime numpy
+        run: pip install --quiet "tensorflow-cpu==2.15.*" "tf2onnx==1.16.1" "onnx==1.15.0" "onnxruntime==1.17.3" "numpy<2" "protobuf==3.20.3"
       - name: Download
         run: |
           set -e
           mkdir -p m && cd m
           for f in nafnet deeplab esrgan; do
-            curl -sSL -o $f.tflite "https://github.com/DroneDirector/Android-Projects/releases/download/ai-models-v1/$f.tflite"
+            curl -fsSL -o $f.tflite "https://github.com/DroneDirector/Android-Projects/releases/download/ai-models-v1/$f.tflite"
           done
-          curl -sSL -o face_detection_yunet_2023mar.onnx "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
-          curl -sSL -o YuNet-LICENSE.txt "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/LICENSE"
+          curl -fsSL -o face_detection_yunet_2023mar.onnx "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+          curl -fsSL -o YuNet-LICENSE.txt "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/LICENSE"
           ls -la
       - name: Convert
         run: |
           set -e
           cd m
           for f in nafnet deeplab esrgan; do
-            python -m tf2onnx.convert --tflite $f.tflite --output $f.onnx --opset 17 2>&1 | tail -5
+            echo "== $f" >> convert-log.txt
+            python -m tf2onnx.convert --tflite $f.tflite --output $f.onnx --opset 17 >> convert-log.txt 2>&1 || echo "FAILED $f" >> convert-log.txt
           done
-          ls -la
+          pip list 2>/dev/null | grep -iE "tensorflow|tf2onnx|onnx|protobuf|numpy" >> convert-log.txt
+          ls -la | tee -a convert-log.txt
       - name: Check
+        if: always()
         run: |
           cd m
           python - <<'PY' | tee model-info.txt
@@ -56,11 +59,13 @@ jobs:
                   print("  run failed:", e)
           PY
       - name: Publish
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd m
-          sha256sum nafnet.onnx deeplab.onnx esrgan.onnx face_detection_yunet_2023mar.onnx > SHA256SUMS.txt
+          touch convert-log.txt model-info.txt
+          sha256sum *.onnx > SHA256SUMS.txt || true
           gh release delete ai-models-win-v1 -y -R ${{ github.repository }} 2>/dev/null || true
           gh release create ai-models-win-v1 -R ${{ github.repository }} -t "AI models for Windows" -n "ONNX versions of the app's AI models (NAFNet MIT, DeepLab v3 Apache 2.0, ESRGAN Apache 2.0) and YuNet (MIT)." \
-            nafnet.onnx deeplab.onnx esrgan.onnx face_detection_yunet_2023mar.onnx YuNet-LICENSE.txt model-info.txt SHA256SUMS.txt
+            *.onnx YuNet-LICENSE.txt model-info.txt convert-log.txt SHA256SUMS.txt

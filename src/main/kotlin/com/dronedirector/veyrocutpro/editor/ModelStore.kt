@@ -226,17 +226,19 @@ object AppData {
 
     /** Where a downloaded file lives on the phone. */
     fun local(context: Context, remote: String): File = when {
+        remote.endsWith(".tflite") -> ModelStore.file(context, remote.removeSuffix(".tflite") + ".onnx")
         remote.startsWith("sound_soundtracks_") -> File(File(context.filesDir, "sound_library/soundtracks").apply { mkdirs() }, remote.removePrefix("sound_soundtracks_"))
         remote.startsWith("whisper_") -> File(File(context.filesDir, "whisper").apply { mkdirs() }, remote.removePrefix("whisper_"))
         else -> ModelStore.file(context, remote)
     }
 
     /** A model in the models folder (by its plain name, e.g. "nafnet.tflite"). */
-    fun file(context: Context, name: String) = ModelStore.file(context, name)
+    fun file(context: Context, name: String) = local(context, name)
     fun has(context: Context, name: String): Boolean = complete(context, name)
 
     private fun complete(context: Context, remote: String): Boolean {
         val f = local(context, remote)
+        if (remote.endsWith(".tflite")) return f.exists() && f.length() > 1000 && !File(f.path + ".part").exists()
         val want = FILES[remote] ?: return f.exists() && f.length() > 0
         return f.exists() && f.length() == want
     }

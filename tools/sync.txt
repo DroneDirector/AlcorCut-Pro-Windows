@@ -68,6 +68,7 @@ copy editor/ProjectUi.kt
 copy editor/ProTools.kt
 copy editor/SaveFolder.kt
 copy editor/ModelStore.kt
+edit editor/ModelStore.kt ModelStore.py
 copy camera/CloudAi.kt
 
 # Video editor data (the video engine comes later)

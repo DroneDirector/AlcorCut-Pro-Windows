@@ -61,6 +61,8 @@ fun main(args: Array<String>) {
     com.dronedirector.veyrocutpro.ui.OneHanded.load(app)
     com.dronedirector.veyrocutpro.ui.Haptics.load(app)
     com.dronedirector.veyrocutpro.editor.UserPresets.init(app)
+    com.dronedirector.veyrocutpro.editor.AppData.init(app)
+    com.dronedirector.veyrocutpro.editor.WinData.start(app)
     // Ran fine for a while: no more "closed while starting".
     Thread { Thread.sleep(25_000); com.dronedirector.veyrocutpro.ui.SafeMode.healthy(app) }.apply { isDaemon = true }.start()
     // A photo opened with the app ("Open with" in Windows).
@@ -97,6 +99,7 @@ fun main(args: Array<String>) {
                         }
                     }
                     Toasts(Modifier.align(Alignment.BottomCenter))
+                    com.dronedirector.veyrocutpro.editor.WinDataBadge(Modifier.align(Alignment.BottomStart))
                     com.dronedirector.veyrocutpro.ui.CrashReportDialog()
                     com.dronedirector.veyrocutpro.ui.SafeModeDialog {}
                     if (!com.dronedirector.veyrocutpro.ui.SafeMode.offer) com.dronedirector.veyrocutpro.ui.WhatsNewDialog()
