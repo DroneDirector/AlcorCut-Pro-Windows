@@ -30,6 +30,7 @@ dependencies {
     implementation(compose.materialIconsExtended)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
     implementation("com.google.code.gson:gson:2.11.0")
+    implementation("org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     // AI models (MIT licence)
     implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
     // Network storage (NAS / SMB shares): smbj (Apache 2.0) and smbj-rpc for the share list (BSD 3-Clause).
