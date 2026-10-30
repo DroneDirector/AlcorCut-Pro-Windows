@@ -118,7 +118,7 @@ object Prompter {
     }
 }
 
-private val condensed = FontFamily(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL))
+private val condensed = com.dronedirector.veyrocutpro.editor.composeFamilyOf(android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.NORMAL))
 
 /**
  * The teleprompter: a movable, scrolling text box over the camera. Drag the top bar to move it,

@@ -79,3 +79,6 @@ object FxLayers {
     fun render(l: Layer, frameW: Int, frameH: Int, ms: Long, context: android.content.Context? = null): android.graphics.Bitmap? = null
     fun renderFrame(l: Layer, frameW: Int, frameH: Int, n: Int, context: android.content.Context? = null): android.graphics.Bitmap? = null
 }
+
+/** A phone Typeface as a desktop font family (the system sans-serif when it isn't a bundled font). */
+fun composeFamilyOf(t: android.graphics.Typeface): androidx.compose.ui.text.font.FontFamily = t.composeFamily() ?: androidx.compose.ui.text.font.FontFamily.SansSerif

@@ -28,14 +28,6 @@ import com.dronedirector.veyrocutpro.camera.StorageArea
 @Composable
 fun onExternalMonitor(): Boolean = true
 
-/** The camera inside the editors: comes with Capture (the phone as the PC's camera). */
-object CaptureForEditor {
-    fun open(editor: String, video: Boolean, onMedia: (uri: Uri, isVideo: Boolean) -> Unit) {
-        Toast.makeText(null, I18n.tr("The camera comes to Windows with Capture (your phone as the PC's camera)"), Toast.LENGTH_LONG).show()
-    }
-    fun close() {}
-}
-
 /** Where this part of the app saves: the default folder or one you choose (any drive). */
 @Composable
 fun StorageChooser(area: StorageArea, onChange: (String) -> Unit = {}) {

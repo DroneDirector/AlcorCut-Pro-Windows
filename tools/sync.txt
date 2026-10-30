@@ -168,10 +168,12 @@ copy ui/Gallery.kt
 copy ui/LiveUi.kt
 copy ui/GlowLogo.kt
 copy ui/HomeShortcuts.kt
+copy ui/CaptureForEditor.kt
 copy camera/CamPresets.kt
 take camera/Grade.kt Grade GradeLut Favorites Ratings GradeDetail
 copy camera/AudioMeter.kt
 copy ui/Teleprompter.kt
+edit ui/Teleprompter.kt Teleprompter.py
 copy ui/Draggable.kt
 copy ui/LongExposureUi.kt
 copy ui/PortraitBlur.kt

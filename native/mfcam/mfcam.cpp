@@ -11,7 +11,6 @@
 #include <ksmedia.h>
 #include <codecapi.h>
 #include <wmcodecdsp.h>
-#include <icodecapi.h>
 #include <jni.h>
 #include <string>
 #include <vector>

@@ -23,7 +23,10 @@ class PcCamera(val device: PcDevice) {
         const val BRIGHTNESS = 0; const val CONTRAST = 1; const val HUE = 2; const val SATURATION = 3; const val SHARPNESS = 4; const val GAMMA = 5
         const val COLOR_ENABLE = 6; const val WHITE_BALANCE = 7; const val BACKLIGHT = 8; const val GAIN = 9; const val POWERLINE = 13
 
-        fun list(): List<PcDevice> = if (!MfNative.ok) emptyList() else try {
+        /** Test picture source for development without a camera (ALCORCUT_TEST_CAMERA = a photo file). */
+        private val testPicture: String? = System.getenv("ALCORCUT_TEST_CAMERA")
+
+        fun list(): List<PcDevice> = if (testPicture != null) listOf(PcDevice("test", "Test camera")) else if (!MfNative.ok) emptyList() else try {
             MfNative.list().mapNotNull { s -> s.split('\u0001').takeIf { it.size == 2 }?.let { PcDevice(it[0], it[1]) } }
         } catch (_: Throwable) { emptyList() }
     }
@@ -39,6 +42,12 @@ class PcCamera(val device: PcDevice) {
     private val lock = Object()
 
     fun open(): Boolean {
+        if (device.link == "test") {
+            formats = listOf(PcFormat(0, 1920, 1080, 30f, "MJPG"), PcFormat(1, 1280, 720, 60f, "NV12"), PcFormat(2, 640, 480, 30f, "YUY2"))
+            controls = listOf(PcControl(0, EXPOSURE, -11, -2, 1, -5, -5, true, true), PcControl(1, GAIN, 0, 255, 1, 32, 32, true, true),
+                PcControl(0, FOCUS, 0, 250, 5, 0, 0, true, true), PcControl(1, WHITE_BALANCE, 2800, 6500, 10, 4600, 4600, true, true), PcControl(1, BRIGHTNESS, 0, 255, 1, 128, 128, false, false))
+            return true
+        }
         if (!MfNative.ok) return false
         h = MfNative.open(device.link)
         if (h == 0L) return false
@@ -54,7 +63,7 @@ class PcCamera(val device: PcDevice) {
     }
 
     fun refreshControls() {
-        if (h == 0L) return
+        if (h == 0L || device.link == "test") return
         controls = try {
             MfNative.controls(h).mapNotNull { line ->
                 val p = line.split(' ').mapNotNull { it.toIntOrNull() }
@@ -69,7 +78,7 @@ class PcCamera(val device: PcDevice) {
         val c = control(kind, id) ?: return false
         val v = value.coerceIn(c.min, c.max)
         if (c.value == v && c.auto == auto) return true
-        val ok = try { MfNative.setControl(h, kind, id, v, auto && c.canAuto) } catch (_: Throwable) { false }
+        val ok = device.link == "test" || try { MfNative.setControl(h, kind, id, v, auto && c.canAuto) } catch (_: Throwable) { false }
         if (ok) { c.value = v; c.auto = auto && c.canAuto }
         return ok
     }
@@ -84,6 +93,7 @@ class PcCamera(val device: PcDevice) {
     /** Starts reading [f]; every picture goes to [onFrame] (on the camera thread). */
     fun start(f: PcFormat, onFrame: (IntArray, Int, Int, Long) -> Unit, onLost: () -> Unit): Boolean {
         stop()
+        if (device.link == "test") return startTest(f, onFrame)
         val wh = try { MfNative.setFormat(h, f.index) } catch (_: Throwable) { 0 }
         if (wh == 0) return false
         width = (wh ushr 16) and 0xFFFF; height = wh and 0xFFFF; current = f
@@ -102,6 +112,26 @@ class PcCamera(val device: PcDevice) {
                 }
             }
         }, "pc-camera").apply { isDaemon = true; priority = Thread.MAX_PRIORITY - 1; start() }
+        return true
+    }
+
+    private fun startTest(f: PcFormat, onFrame: (IntArray, Int, Int, Long) -> Unit): Boolean {
+        val img = javax.imageio.ImageIO.read(java.io.File(testPicture!!)) ?: return false
+        width = f.width; height = f.height; current = f
+        val scaled = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        scaled.createGraphics().apply { drawImage(img, 0, 0, width, height, null); dispose() }
+        val base = scaled.getRGB(0, 0, width, height, null, 0, width)
+        running = true
+        thread = Thread({
+            val buf = IntArray(width * height); var n = 0L
+            while (running) {
+                val shift = ((n * 4) % width).toInt()
+                for (y in 0 until height) System.arraycopy(base, y * width, buf, y * width, width)
+                for (y in height / 2 - 20 until height / 2 + 20) for (x in 0 until 60) buf[y * width + (shift + x) % width] = -1
+                onFrame(buf, width, height, n * 333_333); n++
+                Thread.sleep((1000 / f.fps).toLong())
+            }
+        }, "pc-camera").apply { isDaemon = true; start() }
         return true
     }
 

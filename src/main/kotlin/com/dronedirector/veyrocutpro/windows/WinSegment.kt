@@ -21,7 +21,12 @@ object WinSegment {
     }
 
     /** How likely each cell of an N × N grid is a person (0..1), and N; null without the model. */
-    fun person(c: Context, b: Bitmap): Pair<FloatArray, Int>? {
+    fun person(c: Context, b: Bitmap): Pair<FloatArray, Int>? = classes(c, b, PERSON)
+
+    /** How likely each cell is any subject (anything but background). */
+    fun subject(c: Context, b: Bitmap): Pair<FloatArray, Int>? = classes(c, b, -1)
+
+    private fun classes(c: Context, b: Bitmap, want: Int): Pair<FloatArray, Int>? {
         val s = session(c) ?: return null
         val small = Bitmap.createScaledBitmap(b, N, N, true)
         val px = IntArray(N * N); small.getPixels(px, 0, N, 0, 0, N, N)
@@ -47,7 +52,7 @@ object WinSegment {
             for (j in 0 until k) mx = maxOf(mx, o[i * k + j])
             var sum = 0f
             for (j in 0 until k) sum += exp(o[i * k + j] - mx)
-            exp(o[i * k + PERSON] - mx) / sum
+            if (want >= 0) exp(o[i * k + want] - mx) / sum else 1f - exp(o[i * k] - mx) / sum
         } to N
     }
 }

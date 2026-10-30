@@ -7,9 +7,9 @@ open class VideoView(context: android.content.Context? = null) : android.view.Vi
     fun setVideoURI(u: android.net.Uri?) { uri = u }
     fun setVideoPath(p: String) { uri = android.net.Uri.fromFile(java.io.File(p)) }
     fun setMediaController(c: MediaController?) {}
-    fun setOnPreparedListener(l: (Any?) -> Unit) {}
-    fun setOnCompletionListener(l: (Any?) -> Unit) {}
-    fun setOnErrorListener(l: (Any?, Int, Int) -> Boolean) {}
+    fun setOnPreparedListener(l: (android.media.MediaPlayer) -> Unit) { if (uri != null) l(android.media.MediaPlayer()) }
+    fun setOnCompletionListener(l: (android.media.MediaPlayer) -> Unit) {}
+    fun setOnErrorListener(l: (android.media.MediaPlayer, Int, Int) -> Boolean) {}
     fun requestFocus(): Boolean = true
     fun start() {
         if (started) return
@@ -22,4 +22,4 @@ open class VideoView(context: android.content.Context? = null) : android.view.Vi
     fun seekTo(ms: Int) {}
     val isPlaying: Boolean get() = false
 }
-class MediaController(context: android.content.Context? = null) { fun setAnchorView(v: android.view.View?) {} }
+class MediaController(context: android.content.Context? = null) { fun setAnchorView(v: android.view.View?) {}; fun show(ms: Int) {}; fun show() {}; fun hide() {} }

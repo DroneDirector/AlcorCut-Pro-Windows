@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.media.MediaActionSound
 import android.net.Uri
 import androidx.camera.view.PreviewView
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +58,8 @@ class ProCameraController(private val context: Context) {
             reel = context.getSharedPreferences("procam", Context.MODE_PRIVATE).getInt("reel", 1),
             clipNumber = context.getSharedPreferences("procam", Context.MODE_PRIVATE).getInt("clip", 1),
             headphones = "PC",
+            // No motion sensor on a PC: no spirit level.
+            showLevel = false,
             flatSupported = true,
             filtersAvailable = true,
         )

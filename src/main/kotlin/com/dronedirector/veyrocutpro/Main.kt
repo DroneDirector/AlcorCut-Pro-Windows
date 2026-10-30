@@ -47,6 +47,7 @@ import com.dronedirector.veyrocutpro.ui.I18n
 import com.dronedirector.veyrocutpro.ui.ProCamTheme
 import com.dronedirector.veyrocutpro.ui.Text
 import java.io.File
+import com.dronedirector.veyrocutpro.ui.AppScreen as S
 
 fun main(args: Array<String>) {
     val app = Context.app
@@ -65,8 +66,18 @@ fun main(args: Array<String>) {
     com.dronedirector.veyrocutpro.editor.WinData.start(app)
     // Ran fine for a while: no more "closed while starting".
     Thread { Thread.sleep(25_000); com.dronedirector.veyrocutpro.ui.SafeMode.healthy(app) }.apply { isDaemon = true }.start()
-    // A photo opened with the app ("Open with" in Windows).
-    val opened = args.firstOrNull()?.let { File(it) }?.takeIf { it.isFile }?.let { Uri.fromFile(it) }
+    // A photo opened with the app ("Open with" in Windows), or a desktop shortcut (--screen=capture / photo).
+    var opened = args.firstOrNull { !it.startsWith("--") }?.let { File(it) }?.takeIf { it.isFile }?.let { Uri.fromFile(it) }
+    val asked = args.firstOrNull { it.startsWith("--screen=") }?.substringAfter('=')
+    screen.value = when {
+        opened != null -> S.PHOTO_EDITOR
+        asked == "capture" -> S.CAPTURE
+        asked == "photo" -> S.PHOTO_EDITOR
+        asked == "video" || asked == "editor" -> S.EDITOR
+        com.dronedirector.veyrocutpro.ui.SafeMode.offer -> S.HOME
+        else -> com.dronedirector.veyrocutpro.ui.StartScreen.get(app).let { if (it == S.VIDEO_EDITOR) S.EDITOR else it }
+    }
+    com.dronedirector.veyrocutpro.ui.AudioHardware.start(app)
     application {
         val state = rememberWindowState(placement = WindowPlacement.Maximized, position = WindowPosition(Alignment.Center), size = DpSize(1440.dp, 900.dp))
         var restartKey by remember { mutableStateOf(0) }
@@ -95,18 +106,57 @@ fun main(args: Array<String>) {
                 BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
                     CompositionLocalProvider(LocalConfiguration provides Configuration(maxWidth.value.toInt(), maxHeight.value.toInt())) {
                         androidx.compose.runtime.key(restartKey) {
-                            PhotoEditorScreen(onExit = {}, initial = opened)
+                            com.dronedirector.veyrocutpro.ui.AppExitLayer {
+                                Screens(opened.also { opened = null })
+                                com.dronedirector.veyrocutpro.ui.CaptureForEditorHost(controller) { content -> content() }
+                            }
                         }
                     }
                     Toasts(Modifier.align(Alignment.BottomCenter))
                     com.dronedirector.veyrocutpro.editor.WinDataBadge(Modifier.align(Alignment.BottomStart))
                     com.dronedirector.veyrocutpro.ui.CrashReportDialog()
-                    com.dronedirector.veyrocutpro.ui.SafeModeDialog {}
+                    com.dronedirector.veyrocutpro.ui.SafeModeDialog {
+                        app.getSharedPreferences("procam", Context.MODE_PRIVATE).edit().remove("last_mode").remove("last_lens_pc").apply()
+                        controller.setMode(com.dronedirector.veyrocutpro.camera.CaptureMode.PHOTO)
+                        screen.value = com.dronedirector.veyrocutpro.ui.AppScreen.HOME
+                    }
+                    com.dronedirector.veyrocutpro.ui.AudioHardwareNotice()
+                    if (com.dronedirector.veyrocutpro.camera.CaptureKeys.show) com.dronedirector.veyrocutpro.editor.ShortcutsDialog(com.dronedirector.veyrocutpro.editor.CaptureShortcuts) { com.dronedirector.veyrocutpro.camera.CaptureKeys.show = false }
                     if (!com.dronedirector.veyrocutpro.ui.SafeMode.offer) com.dronedirector.veyrocutpro.ui.WhatsNewDialog()
                     com.dronedirector.veyrocutpro.ui.UndoBarHost()
                     com.dronedirector.veyrocutpro.ui.HelpTipHost()
                 }
             }
+        }
+    }
+}
+
+/** Which screen is open: start screen, Capture, the editor hub or an editor. */
+private val screen = mutableStateOf(com.dronedirector.veyrocutpro.ui.AppScreen.HOME)
+
+/** The camera (one for the whole app, like on the phone). */
+private val controller by lazy { com.dronedirector.veyrocutpro.camera.ProCameraController(Context.app) }
+
+@androidx.compose.runtime.Composable
+private fun Screens(opened: Uri?) {
+    androidx.compose.animation.Crossfade(screen.value, label = "screen") { s ->
+        when (s) {
+            S.HOME -> com.dronedirector.veyrocutpro.ui.HomeScreen(onCapture = { screen.value = S.CAPTURE }, onEditor = { screen.value = S.EDITOR })
+            S.CAPTURE -> {
+                androidx.activity.compose.BackHandler { screen.value = S.HOME }
+                com.dronedirector.veyrocutpro.ui.ForceDark { com.dronedirector.veyrocutpro.ui.CameraScreen(controller) }
+            }
+            S.EDITOR -> com.dronedirector.veyrocutpro.ui.EditorHub(
+                onPhoto = { screen.value = S.PHOTO_EDITOR },
+                onVideo = { Toast.makeText(null, I18n.tr("The video editor comes to Windows in a later update"), Toast.LENGTH_LONG).show() },
+                onBack = { screen.value = S.HOME },
+            )
+            S.PHOTO_EDITOR -> PhotoEditorScreen(
+                onOpenVideo = { Toast.makeText(null, I18n.tr("The video editor comes to Windows in a later update"), Toast.LENGTH_LONG).show() },
+                onExit = { screen.value = S.EDITOR },
+                initial = opened,
+            )
+            S.VIDEO_EDITOR -> { androidx.compose.runtime.LaunchedEffect(Unit) { screen.value = S.EDITOR } }
         }
     }
 }
@@ -134,6 +184,9 @@ private fun handleKey(e: KeyEvent): Boolean {
     if (e.type == KeyEventType.KeyDown && e.key == Key.Escape && !e.isCtrlPressed) return BackDispatcher.back()
     val code = keyCode(e.key)
     if (code == android.view.KeyEvent.KEYCODE_UNKNOWN) return false
+    // Capture's keyboard shortcuts (changeable; Ctrl + / lists them).
+    if (screen.value == com.dronedirector.veyrocutpro.ui.AppScreen.CAPTURE && com.dronedirector.veyrocutpro.ui.CaptureForEditor.request == null)
+        return com.dronedirector.veyrocutpro.camera.CaptureKeys.run(Context.app, controller, phoneKeyEvent(e))
     val meta = (if (e.isCtrlPressed) android.view.KeyEvent.META_CTRL_ON else 0) or (if (e.isShiftPressed) android.view.KeyEvent.META_SHIFT_ON else 0) or
         (if (e.isAltPressed) android.view.KeyEvent.META_ALT_ON else 0) or (if (e.isMetaPressed) android.view.KeyEvent.META_META_ON else 0)
     val action = if (e.type == KeyEventType.KeyDown) android.view.KeyEvent.ACTION_DOWN else android.view.KeyEvent.ACTION_UP

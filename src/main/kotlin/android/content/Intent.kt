@@ -14,6 +14,8 @@ open class Intent(var action: String? = null, var data: Uri? = null) {
     fun setType(t: String?) = apply { type = t }
     fun setPackage(p: String?) = apply {}
     fun putExtra(k: String, v: Any?) = apply { extras[k] = v }
+    fun putParcelableArrayListExtra(k: String, v: java.util.ArrayList<out Any?>?) = apply { extras[k] = v }
+    fun setAction(a: String?) = apply { action = a }
     fun getStringExtra(k: String): String? = extras[k] as? String
     fun getBooleanExtra(k: String, d: Boolean): Boolean = extras[k] as? Boolean ?: d
     fun getIntExtra(k: String, d: Int): Int = extras[k] as? Int ?: d

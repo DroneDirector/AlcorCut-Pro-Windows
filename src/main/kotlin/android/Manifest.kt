@@ -11,5 +11,6 @@ object Manifest {
         const val RECORD_AUDIO = "android.permission.RECORD_AUDIO"
         const val POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS"
         const val ACCESS_FINE_LOCATION = "android.permission.ACCESS_FINE_LOCATION"
+        const val ACCESS_COARSE_LOCATION = "android.permission.ACCESS_COARSE_LOCATION"
     }
 }

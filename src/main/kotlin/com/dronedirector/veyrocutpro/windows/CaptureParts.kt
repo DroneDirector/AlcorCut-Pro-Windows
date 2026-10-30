@@ -63,7 +63,7 @@ class VideoGradeExport(
 }
 
 /** The stop-motion frames as a video (each picture fitted into the first one's shape), with the PC's encoder. */
-suspend fun com.dronedirector.veyrocutpro.ui.StopMotion.makeVideo(c: Context, list: List<Uri>, fps: Int): Uri? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+suspend fun stopMotionVideo(c: Context, list: List<Uri>, fps: Int): Uri? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
     if (list.isEmpty()) return@withContext null
     val first = GradeIO.decode(c, list[0], 1920) ?: return@withContext null
     val w = first.width / 2 * 2; val h = first.height / 2 * 2
