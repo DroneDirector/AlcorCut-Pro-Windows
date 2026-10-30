@@ -612,4 +612,121 @@ JNIEXPORT void JNICALL JN(encClose)(JNIEnv* env, jclass, jlong h) {
     delete e;
 }
 
+// ------------------------------------------------------------------ H.264 decoding (the phone's live picture)
+
+struct Dec {
+    IMFTransform* t = nullptr;
+    UINT32 w = 0, h = 0, stride = 0;
+    std::mutex lock;
+};
+
+static void decSizes(Dec* d) {
+    IMFMediaType* ot = nullptr;
+    if (SUCCEEDED(d->t->GetOutputCurrentType(0, &ot))) {
+        MFGetAttributeSize(ot, MF_MT_FRAME_SIZE, &d->w, &d->h);
+        UINT32 st = 0; if (SUCCEEDED(ot->GetUINT32(MF_MT_DEFAULT_STRIDE, &st))) d->stride = st; else d->stride = d->w;
+        ot->Release();
+    }
+}
+
+static HRESULT decSetOutput(Dec* d) {
+    for (DWORD i = 0;; i++) {
+        IMFMediaType* t = nullptr;
+        HRESULT hr = d->t->GetOutputAvailableType(0, i, &t);
+        if (FAILED(hr)) return hr;
+        GUID sub = GUID_NULL; t->GetGUID(MF_MT_SUBTYPE, &sub);
+        if (sub == MFVideoFormat_NV12) { hr = d->t->SetOutputType(0, t, 0); t->Release(); decSizes(d); return hr; }
+        t->Release();
+    }
+}
+
+JNIEXPORT jlong JNICALL JN(decOpen)(JNIEnv* env, jclass) {
+    com();
+    Dec* d = new Dec();
+    HRESULT hr = CoCreateInstance(CLSID_CMSH264DecoderMFT, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d->t));
+    IMFMediaType* it = nullptr;
+    if (SUCCEEDED(hr)) hr = MFCreateMediaType(&it);
+    if (SUCCEEDED(hr)) { it->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video); it->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264); hr = d->t->SetInputType(0, it, 0); }
+    release(it);
+    if (SUCCEEDED(hr)) decSetOutput(d);
+    if (SUCCEEDED(hr)) { d->t->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0); d->t->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0); }
+    if (FAILED(hr)) { fail("The H.264 decoder couldn't start", hr); release(d->t); delete d; return 0; }
+    return (jlong)d;
+}
+
+/**
+ * One piece of H.264 (Annex-B) in; when a picture comes out it is written into [dst] as ARGB and
+ * (width << 16 | height) is returned. 0 = no picture yet; -(w*h) = [dst] is too small.
+ */
+JNIEXPORT jlong JNICALL JN(decFrame)(JNIEnv* env, jclass, jlong h, jbyteArray data, jlong ts, jintArray dst) {
+    com();
+    Dec* d = (Dec*)h; if (!d) return 0;
+    std::lock_guard<std::mutex> g(d->lock);
+    const jsize n = env->GetArrayLength(data);
+    IMFMediaBuffer* b = nullptr; IMFSample* s = nullptr; BYTE* p = nullptr;
+    HRESULT hr = MFCreateMemoryBuffer((DWORD)n, &b);
+    if (SUCCEEDED(hr)) hr = b->Lock(&p, nullptr, nullptr);
+    if (SUCCEEDED(hr)) { env->GetByteArrayRegion(data, 0, n, (jbyte*)p); b->Unlock(); b->SetCurrentLength((DWORD)n); }
+    if (SUCCEEDED(hr)) hr = MFCreateSample(&s);
+    if (SUCCEEDED(hr)) { s->AddBuffer(b); s->SetSampleTime(ts); }
+    if (SUCCEEDED(hr)) hr = d->t->ProcessInput(0, s, 0);
+    release(s); release(b);
+    jlong ret = 0;
+    for (;;) {
+        MFT_OUTPUT_STREAM_INFO info = {};
+        d->t->GetOutputStreamInfo(0, &info);
+        MFT_OUTPUT_DATA_BUFFER ob = {};
+        IMFSample* os = nullptr; IMFMediaBuffer* obuf = nullptr;
+        if (!(info.dwFlags & (MFT_OUTPUT_STREAM_PROVIDES_SAMPLES | MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES))) {
+            MFCreateSample(&os); MFCreateMemoryBuffer(info.cbSize > 0 ? info.cbSize : (DWORD)(d->w * d->h * 2 + 1024), &obuf); os->AddBuffer(obuf); ob.pSample = os;
+        }
+        DWORD status = 0;
+        HRESULT oh = d->t->ProcessOutput(0, 1, &ob, &status);
+        if (ob.pEvents) ob.pEvents->Release();
+        if (oh == MF_E_TRANSFORM_STREAM_CHANGE) { release(obuf); release(os); decSetOutput(d); continue; }
+        if (FAILED(oh)) { release(obuf); release(os); break; }
+        IMFSample* got = ob.pSample;
+        IMFMediaBuffer* cb = nullptr;
+        if (got && SUCCEEDED(got->ConvertToContiguousBuffer(&cb))) {
+            const UINT32 w = d->w, hh = d->h, st = d->stride ? d->stride : d->w;
+            if ((jsize)(w * hh) > env->GetArrayLength(dst)) ret = -(jlong)(w * hh);
+            else {
+                BYTE* y0 = nullptr; DWORD len = 0;
+                if (SUCCEEDED(cb->Lock(&y0, nullptr, &len))) {
+                    UINT32 rows = len / st * 2 / 3;   // the buffer's own height (may be padded)
+                    if (rows < hh) rows = hh;
+                    const BYTE* uv0 = y0 + (size_t)st * rows;
+                    jint* o = (jint*)env->GetPrimitiveArrayCritical(dst, nullptr);
+                    if (o) {
+                        for (UINT32 y = 0; y < hh; y++) {
+                            const BYTE* Y = y0 + (size_t)y * st; const BYTE* UV = uv0 + (size_t)(y / 2) * st;
+                            jint* row = o + (size_t)y * w;
+                            for (UINT32 x = 0; x < w; x++) {
+                                int c = Y[x] - 16, dd = UV[x & ~1u] - 128, e = UV[(x & ~1u) + 1] - 128;
+                                int r = (298 * c + 409 * e + 128) >> 8, gg = (298 * c - 100 * dd - 208 * e + 128) >> 8, bb = (298 * c + 516 * dd + 128) >> 8;
+                                r = r < 0 ? 0 : r > 255 ? 255 : r; gg = gg < 0 ? 0 : gg > 255 ? 255 : gg; bb = bb < 0 ? 0 : bb > 255 ? 255 : bb;
+                                row[x] = (jint)(0xFF000000u | (r << 16) | (gg << 8) | bb);
+                            }
+                        }
+                        env->ReleasePrimitiveArrayCritical(dst, o, 0);
+                        ret = ((jlong)w << 16) | hh;
+                    }
+                    cb->Unlock();
+                }
+            }
+            cb->Release();
+        }
+        if (got && got != os) got->Release();
+        release(obuf); release(os);
+    }
+    return ret;
+}
+
+JNIEXPORT void JNICALL JN(decClose)(JNIEnv* env, jclass, jlong h) {
+    com();
+    Dec* d = (Dec*)h; if (!d) return;
+    { std::lock_guard<std::mutex> g(d->lock); release(d->t); }
+    delete d;
+}
+
 } // extern "C"

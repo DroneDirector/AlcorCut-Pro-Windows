@@ -7,5 +7,14 @@
 "HEIC: about half the size of JPEG. Uses Windows' HEVC Video Extensions (Microsoft Store).": "HEIC: omtrent halvt så stor som JPEG. Bruger Windows' HEVC-videoudvidelser (Microsoft Store).",
 "AVIF saving needs the app's AVIF encoder — reinstall the app if it is missing.": "AVIF-gemning kræver appens AVIF-encoder — geninstallér appen, hvis den mangler.",
 "JPEG XL: high quality at small sizes, wide colour and HDR-ready; opens in newer photo software, Safari and on Apple devices. Windows shows it with the JPEG XL Image Extension.": "JPEG XL: høj kvalitet i små filer, bredt farverum og klar til HDR; åbner i nyere fotoprogrammer, Safari og på Apple-enheder. Windows viser det med JPEG XL-billedudvidelsen.",
-"AI models ({0}) downloading… {1} %": "AI-modeller ({0}) hentes… {1} %"
+"AI models ({0}) downloading… {1} %": "AI-modeller ({0}) hentes… {1} %",
+"Use your phone as the camera here: turn on Connect to PC in AlcorCut Pro on the phone (Capture → gear → Remote & output), then pick the phone in the camera list and type its PIN. Same Wi-Fi, or a USB cable with USB tethering on.": "Brug din telefon som kamera her: slå Forbind til pc til i AlcorCut Pro på telefonen (Capture → tandhjul → Fjernbetjening & output), vælg så telefonen på kameralisten, og skriv dens PIN-kode. Samme Wi-Fi eller et USB-kabel med USB-tethering slået til.",
+"PHONE AS CAMERA": "TELEFON SOM KAMERA",
+"Connect to {0}": "Forbind til {0}",
+"Type the PIN shown on the phone (Capture → gear → Remote & output → Connect to PC).": "Skriv PIN-koden, der vises på telefonen (Capture → tandhjul → Fjernbetjening & output → Forbind til pc).",
+"Connect": "Forbind",
+"Connecting…": "Forbinder…",
+"Show Capture on a TV or projector with Windows' own casting: press Windows key + K and pick the screen (Miracast / wireless display).": "Vis Capture på et tv eller en projektor med Windows' egen casting: tryk Windows-tast + K, og vælg skærmen (Miracast / trådløs skærm).",
+"The video editor comes to Windows in a later update": "Videoredigeringen kommer til Windows i en senere opdatering",
+"Choose the microphone in Audio hardware (Controls & buttons).": "Vælg mikrofonen under Lydudstyr (Betjening & knapper)."
 }

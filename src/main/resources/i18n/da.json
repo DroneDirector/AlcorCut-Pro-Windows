@@ -4832,5 +4832,20 @@
 "Language, startup screen, quick tour, guide, what's new, licences, privacy": "Sprog, startskærm, hurtig rundvisning, vejledning, nyheder, licenser, privatliv",
 "Latest update": "Seneste opdatering",
 "{0} change(s)": "{0} ændring(er)",
-"Start screen → gear → What's new lists what changed in the last three versions, for the whole app — each version in its own fold-out, the latest open. In Capture, the Photo editor and the Video editor, gear → App → ★ WHAT'S NEW shows only the changes for that part.": "Startskærm → tandhjul → Nyheder viser, hvad der er ændret i de sidste tre versioner, for hele appen — hver version i sin egen fold-ud, den seneste åben. I Optagelse, fotoredigeringen og videoredigeringen viser tandhjul → App → ★ NYHEDER kun ændringerne for den del."
+"Start screen → gear → What's new lists what changed in the last three versions, for the whole app — each version in its own fold-out, the latest open. In Capture, the Photo editor and the Video editor, gear → App → ★ WHAT'S NEW shows only the changes for that part.": "Startskærm → tandhjul → Nyheder viser, hvad der er ændret i de sidste tre versioner, for hele appen — hver version i sin egen fold-ud, den seneste åben. I Optagelse, fotoredigeringen og videoredigeringen viser tandhjul → App → ★ NYHEDER kun ændringerne for den del.",
+"CONNECT TO PC": "FORBIND TIL PC",
+"Connect to PC": "Forbind til pc",
+"Use this phone as the camera in AlcorCut Pro on Windows — over Wi-Fi, or a USB cable with USB tethering on": "Brug denne telefon som kamera i AlcorCut Pro på Windows — via Wi-Fi eller et USB-kabel med USB-tethering slået til",
+"Connected to {0}": "Forbundet til {0}",
+"On the PC: Capture → camera list → this phone, then type the PIN:": "På pc'en: Capture → kameralisten → denne telefon, og skriv så PIN-koden:",
+"PIN {0}": "PIN {0}",
+"This phone: {0}": "Denne telefon: {0}",
+"not on a network — join Wi-Fi or turn on USB tethering": "ikke på et netværk — forbind til Wi-Fi eller slå USB-tethering til",
+"Send photos and videos to the PC": "Send fotos og videoer til pc'en",
+"Each photo and video is also copied to the PC as soon as it's saved here": "Hvert foto og hver video kopieres også til pc'en, så snart det er gemt her",
+"Couldn't start Connect to PC (the port is in use)": "Kunne ikke starte Forbind til pc (porten er optaget)",
+"Connected to the PC ({0})": "Forbundet til pc'en ({0})",
+"The PC disconnected": "Pc'en afbrød forbindelsen",
+"Remote monitor & control from another device, connect to a PC, cast to a TV (Chromecast), clean feed for HDMI / streaming": "Fjernskærm og -styring fra en anden enhed, forbind til en pc, cast til et tv (Chromecast), rent billede til HDMI / streaming",
+"Connect to PC: Settings → Remote & output → CONNECT TO PC, then on the Windows PC open Capture, pick this phone in the camera list and type the PIN. The PC shows the live picture and works the camera; photos and videos are taken on the phone at full quality and copied to the PC. Same Wi-Fi, or a USB cable with USB tethering turned on.": "Forbind til pc: Indstillinger → Fjernbetjening & output → FORBIND TIL PC, åbn så Capture på Windows-pc'en, vælg denne telefon på kameralisten, og skriv PIN-koden. Pc'en viser det levende billede og styrer kameraet; fotos og videoer tages på telefonen i fuld kvalitet og kopieres til pc'en. Samme Wi-Fi eller et USB-kabel med USB-tethering slået til."
 }

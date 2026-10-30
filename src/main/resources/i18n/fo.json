@@ -4880,5 +4880,20 @@
 "Language, startup screen, quick tour, guide, what's new, licences, privacy": "Mál, byrjanarskíggi, skjót rundferð, vegleiðing, nýtt, loyvi, privatlív",
 "Latest update": "Seinasta dagføring",
 "{0} change(s)": "{0} broyting(ar)",
-"Start screen → gear → What's new lists what changed in the last three versions, for the whole app — each version in its own fold-out, the latest open. In Capture, the Photo editor and the Video editor, gear → App → ★ WHAT'S NEW shows only the changes for that part.": "Byrjanarskíggi → tannhjól → Nýtt vísir, hvat er broytt í seinastu trimum útgávunum, fyri alla appina — hvør útgáva í sínum egna faldi, tann seinasta opin. Í Upptøku, myndaviðgerðini og sjónbandsviðgerðini vísir tannhjól → App → ★ NÝTT bert broytingarnar fyri tann partin."
+"Start screen → gear → What's new lists what changed in the last three versions, for the whole app — each version in its own fold-out, the latest open. In Capture, the Photo editor and the Video editor, gear → App → ★ WHAT'S NEW shows only the changes for that part.": "Byrjanarskíggi → tannhjól → Nýtt vísir, hvat er broytt í seinastu trimum útgávunum, fyri alla appina — hvør útgáva í sínum egna faldi, tann seinasta opin. Í Upptøku, myndaviðgerðini og sjónbandsviðgerðini vísir tannhjól → App → ★ NÝTT bert broytingarnar fyri tann partin.",
+"CONNECT TO PC": "SAMBAND VIÐ TELDU",
+"Connect to PC": "Samband við teldu",
+"Use this phone as the camera in AlcorCut Pro on Windows — over Wi-Fi, or a USB cable with USB tethering on": "Brúka hesa telefonina sum myndatól í AlcorCut Pro á Windows — um Wi-Fi ella ein USB-kaðal við USB-tethering tendraðum",
+"Connected to {0}": "Í sambandi við {0}",
+"On the PC: Capture → camera list → this phone, then type the PIN:": "Á teldunni: Capture → listin við myndatólum → henda telefonin, og skriva so PIN-kotuna:",
+"PIN {0}": "PIN {0}",
+"This phone: {0}": "Henda telefonin: {0}",
+"not on a network — join Wi-Fi or turn on USB tethering": "ikki á einum neti — knýt í Wi-Fi ella tendra USB-tethering",
+"Send photos and videos to the PC": "Send myndir og sjónbond til teldunnar",
+"Each photo and video is also copied to the PC as soon as it's saved here": "Hvør mynd og hvørt sjónband verður eisini avritað til teldunnar, so skjótt tað er goymt her",
+"Couldn't start Connect to PC (the port is in use)": "Fekk ikki byrjað Samband við teldu (portrið er í nýtslu)",
+"Connected to the PC ({0})": "Í sambandi við telduna ({0})",
+"The PC disconnected": "Teldan sleit sambandið",
+"Remote monitor & control from another device, connect to a PC, cast to a TV (Chromecast), clean feed for HDMI / streaming": "Fjarskíggi og -stýring frá øðrum tóli, samband við teldu, kasta til sjónvarp (Chromecast), reina mynd til HDMI / streyming",
+"Connect to PC: Settings → Remote & output → CONNECT TO PC, then on the Windows PC open Capture, pick this phone in the camera list and type the PIN. The PC shows the live picture and works the camera; photos and videos are taken on the phone at full quality and copied to the PC. Same Wi-Fi, or a USB cable with USB tethering turned on.": "Samband við teldu: Stillingar → Fjarstýring & úttak → SAMBAND VIÐ TELDU, lat so Capture upp á Windows-teldini, vel hesa telefonina á listanum við myndatólum og skriva PIN-kotuna. Teldan vísir livandi myndina og stýrir myndatólinum; myndir og sjónbond verða tikin á telefonini í fullari góðsku og avritaði til teldunnar. Sama Wi-Fi ella ein USB-kaðal við USB-tethering tendraðum."
 }

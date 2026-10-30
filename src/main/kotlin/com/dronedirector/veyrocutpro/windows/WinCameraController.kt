@@ -135,6 +135,90 @@ class ProCameraController(private val context: Context) {
     private var previewView: PreviewView? = null
     private var cam: PcCamera? = null
     private var devices: List<PcDevice> = emptyList()
+    private var phones: List<PhoneDevice> = emptyList()
+    private var watchJob: kotlinx.coroutines.Job? = null
+    /** The phone in use as the camera (Connect to PC), or null for a PC camera. */
+    @Volatile private var phone: PhoneLink? = null
+    private val viaPhone: Boolean get() = phone != null
+    /** A phone waiting for its PIN (the PIN dialog shows while this is set). */
+    var pinRequest by androidx.compose.runtime.mutableStateOf<PhoneDevice?>(null); private set
+    var pinError by androidx.compose.runtime.mutableStateOf<String?>(null); private set
+
+    /** With the phone as the camera, a control goes to the phone. */
+    private fun fwd(cmd: String, value: Any? = null): Boolean { val p = phone ?: return false; p.command(cmd, value); return true }
+
+    private fun updateLenses() {
+        val pcs = devices.map { Lens(it.link, androidx.camera.core.CameraSelector.LENS_FACING_FRONT, it.name, androidx.camera.core.CameraInfo()) }
+        val ph = phones.map { Lens(it.link, androidx.camera.core.CameraSelector.LENS_FACING_BACK, "Phone · " + it.name, androidx.camera.core.CameraInfo()) }
+        set { it.copy(lenses = pcs + ph) }
+    }
+
+    /** The PIN typed on the PC for [d] (shown on the phone). */
+    fun connectPhone(d: PhoneDevice, pin: String) {
+        pinError = null
+        scope.launch {
+            val link = PhoneLink(d, ::onFrame, { m -> scope.launch { mirror(m) } }, { f -> scope.launch { onPhoneFile(f) } }) { why ->
+                scope.launch {
+                    if (phone != null) { phone = null; set { it.copy(ready = false, recording = false) }; toast(why ?: "The phone disconnected") }
+                }
+            }
+            val err = withContext(Dispatchers.IO) { link.connect(pin.trim()) }
+            if (err != null) { pinError = err; return@launch }
+            prefs.edit().putString("phone_pin_${d.name}", pin.trim()).apply()
+            pinRequest = null
+            withContext(Dispatchers.IO) { cam?.close() }; cam = null
+            previewView?.clear()
+            phone = link
+            refreshPipes()
+            set { it.copy(ready = true) }
+            toast("Connected to ${d.name} — photos and videos are taken on the phone and copied here")
+        }
+    }
+    fun cancelPin() { pinRequest = null; pinError = null }
+    fun lastPin(d: PhoneDevice): String = prefs.getString("phone_pin_${d.name}", "") ?: ""
+
+    /** The phone's camera settings, shown on the PC. */
+    private fun mirror(m: Map<String, String>) {
+        fun b(k: String) = m[k] == "true"
+        fun i(k: String) = m[k]?.toDoubleOrNull()?.toInt()
+        fun l(k: String) = m[k]?.toDoubleOrNull()?.toLong()
+        fun f(k: String) = m[k]?.toFloatOrNull()
+        fun ints(k: String) = m[k]?.trim('[', ']')?.split(',')?.mapNotNull { it.trim().toDoubleOrNull()?.toInt() }.orEmpty()
+        fun longs(k: String) = m[k]?.trim('[', ']')?.split(',')?.mapNotNull { it.trim().toDoubleOrNull()?.toLong() }.orEmpty()
+        fun strs(k: String) = m[k]?.trim('[', ']')?.split(',')?.map { it.trim().trim('"') }?.filter { it.isNotEmpty() }.orEmpty()
+        set { s ->
+            s.copy(
+                mode = CaptureMode.entries.firstOrNull { it.name == m["mode"] } ?: s.mode,
+                ready = b("ready"), recording = b("recording"), paused = b("paused"), recordSeconds = l("seconds") ?: 0,
+                manualSensor = b("manualSensor"), manualIso = b("manualIso"), manualShutter = b("manualShutter"),
+                iso = i("iso") ?: s.iso, shutterNs = l("shutterNs") ?: s.shutterNs,
+                liveIso = i("liveIso")?.takeIf { it > 0 }, liveShutterNs = l("liveShutterNs")?.takeIf { it > 0 },
+                isoStops = ints("isoStops"), shutterStops = longs("shutterStops"),
+                manualFocus = b("manualFocus"), focusDiopters = f("focus") ?: 0f, minFocusDiopters = f("minFocus") ?: 0f,
+                whiteBalance = WhiteBalance.entries.firstOrNull { it.name == m["wb"] } ?: s.whiteBalance,
+                ev = i("ev") ?: 0, evMin = i("evMin") ?: 0, evMax = i("evMax") ?: 0, evStep = f("evStep") ?: s.evStep,
+                aeLock = b("aeLock"), awbLock = b("awbLock"), zoom = f("zoom") ?: 1f, minZoom = f("minZoom") ?: 1f, maxZoom = f("maxZoom") ?: 1f,
+                flash = FlashSetting.entries.firstOrNull { it.name == m["flash"] } ?: FlashSetting.OFF, hasFlash = b("hasFlash"),
+                rawSupported = b("raw"), photoFormat = PhotoFormat.entries.firstOrNull { it.name == m["format"] } ?: PhotoFormat.JPEG,
+                videoRes = VideoRes.entries.firstOrNull { it.name == m["videoRes"] } ?: s.videoRes,
+                videoResolutions = strs("resolutions").mapNotNull { n -> VideoRes.entries.firstOrNull { it.name == n } }.ifEmpty { s.videoResolutions },
+                fps = i("fps") ?: s.fps, fpsOptions = ints("fpsOptions").ifEmpty { s.fpsOptions },
+                profile = VideoProfile.entries.firstOrNull { it.name == m["profile"] } ?: s.profile, hlgSupported = b("hlg"),
+                videoCodec = VideoCodec.entries.firstOrNull { it.name == m["codec"] } ?: s.videoCodec, hevcSupported = b("hevc"),
+                audioLevel = f("audioLevel") ?: 0f, capturing = b("capturing"),
+                stabilization = b("stabilization"), stabilizationSupported = b("stabSupported"),
+                timerSec = i("timer") ?: s.timerSec, countdown = i("countdown") ?: 0,
+            )
+        }
+        phoneLenses = strs("lenses"); phoneLens = i("lens") ?: 0
+    }
+    private var phoneLenses: List<String> = emptyList()
+    private var phoneLens = 0
+
+    private fun onPhoneFile(f: java.io.File) {
+        set { it.copy(lastMedia = android.net.Uri.fromFile(f)) }
+        toast("Copied from the phone: ${f.name}")
+    }
     @Volatile private var recorder: WinRecorder? = null
     private var recordFile: java.io.File? = null
     private var recordJob: kotlinx.coroutines.Job? = null
@@ -180,17 +264,35 @@ class ProCameraController(private val context: Context) {
         refreshPipes()
         scope.launch {
             devices = withContext(Dispatchers.IO) { PcCamera.list() }
-            if (devices.isEmpty()) {
+            phones = withContext(Dispatchers.IO) { PhoneLink.discover() }
+            if (devices.isEmpty() && phones.isEmpty()) {
                 toast(if (com.dronedirector.veyrocutpro.windows.MfNative.ok) "No camera found — plug in a webcam or capture card, or connect your phone (Connect to PC)"
                 else "The camera part of the app is missing — reinstall AlcorCut Pro")
                 set { it.copy(lenses = emptyList(), ready = false) }
-                return@launch
+            } else {
+                updateLenses()
+                val lastId = prefs.getString("last_lens_pc", null)
+                val idx = st.lenses.indexOfFirst { it.id == lastId }.takeIf { it >= 0 } ?: st.lenses.indexOfFirst { !it.id.startsWith("phone:") }.coerceAtLeast(0)
+                set { it.copy(lensIndex = idx) }
+                if (st.mode == CaptureMode.LIVE) { openCamera(); live.open(); set { it.copy(ready = true) } } else openCamera()
             }
-            val lenses = devices.map { Lens(it.link, androidx.camera.core.CameraSelector.LENS_FACING_EXTERNAL, it.name, androidx.camera.core.CameraInfo()) }
-            val lastId = prefs.getString("last_lens_pc", null)
-            val idx = lenses.indexOfFirst { it.id == lastId }.takeIf { it >= 0 } ?: 0
-            set { it.copy(lenses = lenses, lensIndex = idx) }
-            if (st.mode == CaptureMode.LIVE) { openCamera(); live.open(); set { it.copy(ready = true) } } else openCamera()
+            // Phones turning on Connect to PC later show up by themselves.
+            watchJob?.cancel()
+            watchJob = scope.launch {
+                while (previewView != null) {
+                    delay(6000)
+                    if (phone != null) continue
+                    val now = withContext(Dispatchers.IO) { PhoneLink.discover() }
+                    val pcs = withContext(Dispatchers.IO) { PcCamera.list() }
+                    if (now.map { it.link }.toSet() != phones.map { it.link }.toSet() || pcs != devices) {
+                        phones = now; devices = pcs
+                        val keep = st.lens?.id
+                        updateLenses()
+                        st.lenses.indexOfFirst { it.id == keep }.takeIf { it >= 0 }?.let { i -> set { it.copy(lensIndex = i) } }
+                        if (cam == null && phone == null && devices.isNotEmpty() && st.lens?.id?.startsWith("phone:") != true) openCamera()
+                    }
+                }
+            }
         }
     }
 
@@ -205,6 +307,8 @@ class ProCameraController(private val context: Context) {
     }
 
     private fun closeCamera() {
+        watchJob?.cancel(); watchJob = null
+        phone?.close(); phone = null
         cam?.close(); cam = null
         synchronized(latestLock) { latest = null }
     }
@@ -212,6 +316,14 @@ class ProCameraController(private val context: Context) {
     /** Opens the chosen PC camera and reads what it can do. */
     private suspend fun openCamera() {
         val lens = st.lens ?: return
+        phones.firstOrNull { it.link == lens.id }?.let { p ->
+            if (phone?.device?.link == p.link) return
+            phone?.close(); phone = null
+            pinError = null
+            pinRequest = p
+            return
+        }
+        phone?.close(); phone = null
         val dev = devices.firstOrNull { it.link == lens.id } ?: return
         val c = withContext(Dispatchers.IO) { cam?.close(); PcCamera(dev).takeIf { it.open() } }
         if (c == null) {
@@ -278,6 +390,7 @@ class ProCameraController(private val context: Context) {
 
     /** Starts the camera in the format the mode needs. */
     private fun bind() {
+        if (phone != null) return
         val c = cam ?: return
         val s = st
         if (s.mode == CaptureMode.LIVE && !live.state.value.isBusy) { /* the stream reads from here too */ }
@@ -479,6 +592,7 @@ class ProCameraController(private val context: Context) {
         val lut = CaptureExtras.monitorLut?.let { com.dronedirector.veyrocutpro.editor.LutLibrary.get(it) }
         val curve = logCurve(s)
         val filter = s.filter
+        if (viaPhone) { recordPipe = null; previewPipe = null; return }
         io.execute {
             val rec = ColorPipe(filter, curve, if (CaptureExtras.bakeLut) lut else null)
             val view = if (!s.logAssist && (lut == null || CaptureExtras.bakeLut)) rec else ColorPipe(filter, if (s.logAssist) 0 else curve, lut)
@@ -491,6 +605,7 @@ class ProCameraController(private val context: Context) {
 
     /** Sends exposure, focus, white balance, zoom, flicker and brightness to the camera. */
     private fun applyControls() {
+        if (phone != null) return
         val c = cam ?: return
         val s = st
         scope.launch(Dispatchers.IO) {
@@ -564,6 +679,7 @@ class ProCameraController(private val context: Context) {
     fun setMode(mode: CaptureMode) {
         val s = st
         if (s.recording || s.stitching || s.mode == mode) return
+        if (phone != null && mode != CaptureMode.LIVE) { prefs.edit().putString("last_mode", mode.name).apply(); set { it.copy(mode = mode, activeParam = null, showFilters = false) }; fwd("mode", mode.name); return }
         if (s.mode == CaptureMode.LIVE && live.state.value.isBusy) { toast("End the live stream first"); return }
         if (mode == CaptureMode.PANORAMA) { toast("Panorama follows how a phone turns — use it in Capture on the phone, or connect your phone (Connect to PC)"); return }
         stopInterval()
@@ -641,23 +757,33 @@ class ProCameraController(private val context: Context) {
     fun macroLensIndex(): Int? = null
     fun macro() { toast("This camera has no macro lens") }
 
-    /** Next camera on the PC. */
-    fun flipCamera() { val s = st; if (s.lenses.size > 1) selectLens((s.lensIndex + 1) % s.lenses.size) }
+    /** Next camera on the PC (with the phone: the phone's next lens). */
+    fun flipCamera() {
+        if (phone != null) { if (phoneLenses.size > 1) fwd("lens", (phoneLens + 1) % phoneLenses.size); return }
+        val s = st; if (s.lenses.size > 1) selectLens((s.lensIndex + 1) % s.lenses.size)
+    }
 
     fun setActiveParam(p: ProParam?) = set { it.copy(activeParam = if (it.activeParam == p) null else p) }
 
     fun setIso(iso: Int) {
+        if (fwd("iso", iso)) return
         if (gainCtl == null) { toast("This camera has no manual gain (ISO)"); return }
         set { it.copy(manualIso = true, iso = iso) }; applyControls()
     }
     fun setShutter(ns: Long) {
+        if (fwd("shutterNs", ns)) return
         if (!st.manualSensor) return
         set { it.copy(manualShutter = true, shutterNs = ns) }; applyControls()
     }
-    fun setIsoAuto() { set { it.copy(manualIso = false) }; applyControls() }
-    fun setShutterAuto() { set { it.copy(manualShutter = false) }; applyControls() }
+    fun setIsoAuto() {
+        if (fwd("isoAuto")) return
+        set { it.copy(manualIso = false) }; applyControls() }
+    fun setShutterAuto() {
+        if (fwd("shutterAuto")) return
+        set { it.copy(manualShutter = false) }; applyControls() }
 
     fun setFocus(diopters: Float) {
+        if (fwd("focus", diopters)) return
         if (st.minFocusDiopters <= 0f) return
         set { it.copy(manualFocus = true, focusDiopters = diopters.coerceIn(0f, it.minFocusDiopters)) }
         applyControls()
@@ -689,14 +815,21 @@ class ProCameraController(private val context: Context) {
         if (!s.manualFocus) toast("Manual focus · slide on the right edge · ✕ for auto")
     }
 
-    fun setFocusAuto() { rackJob?.cancel(); set { it.copy(manualFocus = false) }; applyControls() }
+    fun setFocusAuto() {
+        if (fwd("focusAuto")) return
+        rackJob?.cancel(); set { it.copy(manualFocus = false) }; applyControls() }
 
     fun setWhiteBalance(wb: WhiteBalance) {
+        if (fwd("wb", wb.name)) return
         if (wbCtl == null && wb != WhiteBalance.AUTO) { toast("This camera sets its white balance itself"); return }
         set { it.copy(whiteBalance = wb, awbLock = false) }; applyControls()
     }
-    fun toggleAwbLock() { set { it.copy(awbLock = !it.awbLock) }; applyControls() }
-    fun toggleAeLock() { set { it.copy(aeLock = !it.aeLock, aeLockPoint = null) }; applyControls() }
+    fun toggleAwbLock() {
+        if (fwd("awbLock")) return
+        set { it.copy(awbLock = !it.awbLock) }; applyControls() }
+    fun toggleAeLock() {
+        if (fwd("aeLock")) return
+        set { it.copy(aeLock = !it.aeLock, aeLockPoint = null) }; applyControls() }
 
     fun lockExposureAt(x: Float, y: Float) {
         if (st.manualExposure) { toast("Exposure is manual — no lock needed"); return }
@@ -705,20 +838,23 @@ class ProCameraController(private val context: Context) {
     }
     fun unlockExposure() { set { it.copy(aeLock = false, aeLockPoint = null, ev = 0) }; applyControls() }
 
-    fun setEv(index: Int) { set { it.copy(ev = index.coerceIn(it.evMin, it.evMax)) }; applyControls() }
+    fun setEv(index: Int) {
+        if (fwd("ev", index)) return
+        set { it.copy(ev = index.coerceIn(it.evMin, it.evMax)) }; applyControls() }
 
     fun setZoom(ratio: Float) {
+        if (fwd("zoom", ratio.coerceIn(st.minZoom, st.maxZoom))) return
         val s = st
         val z = ratio.coerceIn(s.minZoom, s.maxZoom)
         set { it.copy(zoom = z) }
         applyControls()
     }
 
-    fun setFlash(f: FlashSetting) { if (f != FlashSetting.OFF) toast("This camera has no flash") }
-    fun setPhotoFormat(f: PhotoFormat) { if (f != PhotoFormat.JPEG) toast("RAW comes with tethered cameras") }
+    fun setFlash(f: FlashSetting) { if (fwd("flash", f.name)) return; if (f != FlashSetting.OFF) toast("This camera has no flash") }
+    fun setPhotoFormat(f: PhotoFormat) { if (fwd("format", f.name)) return; if (f != PhotoFormat.JPEG) toast("RAW comes with tethered cameras") }
     fun setAspect(a: AspectMode) { set { it.copy(aspect = a) } }
     fun setScene(scene: Scene) {}
-    fun setTimer(sec: Int) = set { it.copy(timerSec = sec) }
+    fun setTimer(sec: Int) { if (!fwd("timer", sec)) set { it.copy(timerSec = sec) } }
     fun setBurst(count: Int) = set { it.copy(burst = count) }
     fun setGrid(g: GridMode) = set { it.copy(grid = g) }
     fun bumpLayoutVersion() = set { it.copy(layoutVersion = it.layoutVersion + 1) }
@@ -736,6 +872,7 @@ class ProCameraController(private val context: Context) {
     }
 
     fun setVideoCodec(codec: VideoCodec) {
+        if (fwd("codec", codec.name)) return
         if (st.recording || st.videoCodec == codec) return
         prefs.edit().putString("video_codec", codec.name).apply()
         set { it.copy(videoCodec = codec) }
@@ -775,9 +912,9 @@ class ProCameraController(private val context: Context) {
     }
 
     fun toggleAudio() = set { it.copy(audio = !it.audio) }
-    fun setVideoRes(r: VideoRes) { if (st.recording || st.videoRes == r) return; set { it.copy(videoRes = r) }; cam?.let { readCapabilities(it) }; bind() }
-    fun setFps(fps: Int) { if (st.recording || st.fps == fps) return; set { it.copy(fps = fps) }; bind() }
-    fun toggleStabilization() { toast("PC cameras don't stabilize; Gyroflow needs a phone") }
+    fun setVideoRes(r: VideoRes) { if (fwd("videoRes", r.name)) return; if (st.recording || st.videoRes == r) return; set { it.copy(videoRes = r) }; cam?.let { readCapabilities(it) }; bind() }
+    fun setFps(fps: Int) { if (fwd("fps", fps)) return; if (st.recording || st.fps == fps) return; set { it.copy(fps = fps) }; bind() }
+    fun toggleStabilization() { if (fwd("stabilization")) return; toast("PC cameras don't stabilize; Gyroflow needs a phone") }
     fun setStabilizationMode(mode: Int) { if (mode != 0) toast("PC cameras don't stabilize; Gyroflow needs a phone") }
     val stabilizationMode: Int get() = 0
 
@@ -793,6 +930,7 @@ class ProCameraController(private val context: Context) {
         set { it.copy(highBitrate = CaptureExtras.bitrateTier >= 2) }
     }
     fun setProfile(p: VideoProfile) {
+        if (fwd("profile", p.name)) return
         if (st.recording || st.profile == p) return
         if (p == VideoProfile.HLG) { toast("HLG needs a 10-bit camera"); return }
         set { it.copy(profile = p) }
@@ -801,6 +939,7 @@ class ProCameraController(private val context: Context) {
 
     fun tapToFocus(x: Float, y: Float) {
         set { it.copy(focusPoint = x to y, focusId = it.focusId + 1) }
+        if (fwd("focusAuto")) return
         // PC cameras focus on the whole picture: a tap starts their autofocus again.
         if (!st.manualFocusActive) focusCtl?.let { f -> scope.launch(Dispatchers.IO) { cam?.set(0, PcCamera.FOCUS, f.value, false); cam?.set(0, PcCamera.FOCUS, f.value, true) } }
     }
@@ -838,6 +977,7 @@ class ProCameraController(private val context: Context) {
     fun shutter() {
         val s = st
         if (s.mode == CaptureMode.LIVE) { live.toggleLive(); return }
+        if (fwd("shutter")) return
         if (!s.ready || s.stitching) return
         if (!s.recording && !s.intervalRunning) rememberSetup()
         if (s.countdown > 0) { cancelCountdown(); return }
@@ -1140,6 +1280,7 @@ class ProCameraController(private val context: Context) {
     private var holdBurstJob: kotlinx.coroutines.Job? = null
     fun setBurstModeCount(n: Int) = set { it.copy(burstModeCount = n) }
     fun startHoldBurst() {
+        if (fwd("shutter")) return
         if (st.mode != CaptureMode.BURST || st.capturing || holdBurstJob != null) return
         set { it.copy(holdBursting = true, capturing = true) }
         holdBurstJob = scope.launch {
@@ -1266,6 +1407,7 @@ class ProCameraController(private val context: Context) {
 
     fun setAudioMonitoring(on: Boolean) { if (on) audioMeter.startMonitoring() else audioMeter.stopMonitoring() }
     fun pauseResume() {
+        if (fwd("pause")) return
         val r = recorder ?: return
         r.paused = !r.paused
         set { it.copy(paused = r.paused) }

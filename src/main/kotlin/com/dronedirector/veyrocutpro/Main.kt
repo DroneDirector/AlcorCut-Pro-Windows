@@ -145,6 +145,7 @@ private fun Screens(opened: Uri?) {
             S.CAPTURE -> {
                 androidx.activity.compose.BackHandler { screen.value = S.HOME }
                 com.dronedirector.veyrocutpro.ui.ForceDark { com.dronedirector.veyrocutpro.ui.CameraScreen(controller) }
+                com.dronedirector.veyrocutpro.ui.PhonePinDialog(controller)
             }
             S.EDITOR -> com.dronedirector.veyrocutpro.ui.EditorHub(
                 onPhoto = { screen.value = S.PHOTO_EDITOR },

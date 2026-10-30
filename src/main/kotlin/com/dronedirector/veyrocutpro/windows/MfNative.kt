@@ -34,6 +34,9 @@ object MfNative {
     @JvmStatic external fun encHeader(h: Long): ByteArray?
     @JvmStatic external fun encAudio(h: Long, pcm: ByteArray, n: Int, ts: Long, dur: Long): ByteArray?
     @JvmStatic external fun encClose(h: Long)
+    @JvmStatic external fun decOpen(): Long
+    @JvmStatic external fun decFrame(h: Long, data: ByteArray, ts: Long, dst: IntArray): Long
+    @JvmStatic external fun decClose(h: Long)
 
     fun error(): String = try { lastError() } catch (_: Throwable) { "" }
 }

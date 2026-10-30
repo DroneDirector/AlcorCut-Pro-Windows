@@ -7,5 +7,14 @@
 "HEIC: about half the size of JPEG. Uses Windows' HEVC Video Extensions (Microsoft Store).": "HEIC: umleið hálvt so stór sum JPEG. Brúkar Windows' HEVC Video Extensions (Microsoft Store).",
 "AVIF saving needs the app's AVIF encoder — reinstall the app if it is missing.": "At goyma AVIF krevur AVIF-encoderin hjá appini — legg appina inn av nýggjum, um hann manglar.",
 "JPEG XL: high quality at small sizes, wide colour and HDR-ready; opens in newer photo software, Safari and on Apple devices. Windows shows it with the JPEG XL Image Extension.": "JPEG XL: høg góðska í smáum fílum, breitt litarúm og klárt til HDR; letur upp í nýggjari myndaforritum, Safari og á Apple-tólum. Windows vísir tað við JPEG XL Image Extension.",
-"AI models ({0}) downloading… {1} %": "AI-modellir ({0}) verða tikin niður… {1} %"
+"AI models ({0}) downloading… {1} %": "AI-modellir ({0}) verða tikin niður… {1} %",
+"Use your phone as the camera here: turn on Connect to PC in AlcorCut Pro on the phone (Capture → gear → Remote & output), then pick the phone in the camera list and type its PIN. Same Wi-Fi, or a USB cable with USB tethering on.": "Brúka telefonina sum myndatól her: tendra Samband við teldu í AlcorCut Pro á telefonini (Capture → tannhjól → Fjarstýring & úttak), vel so telefonina á listanum við myndatólum og skriva PIN-kotuna. Sama Wi-Fi ella ein USB-kaðal við USB-tethering tendraðum.",
+"PHONE AS CAMERA": "TELEFON SUM MYNDATÓL",
+"Connect to {0}": "Samband við {0}",
+"Type the PIN shown on the phone (Capture → gear → Remote & output → Connect to PC).": "Skriva PIN-kotuna, ið stendur á telefonini (Capture → tannhjól → Fjarstýring & úttak → Samband við teldu).",
+"Connect": "Bind saman",
+"Connecting…": "Bindur saman…",
+"Show Capture on a TV or projector with Windows' own casting: press Windows key + K and pick the screen (Miracast / wireless display).": "Vís Capture á einum sjónvarpi ella projektori við Windows' egnu casting: trýst á Windows-knøttin + K og vel skermin (Miracast / trádleysur skermur).",
+"The video editor comes to Windows in a later update": "Sjónbandsritstjórin kemur til Windows í einari seinni dagføring",
+"Choose the microphone in Audio hardware (Controls & buttons).": "Vel mikrofonina undir Ljóðútgerð (Stýring & knøttar)."
 }
