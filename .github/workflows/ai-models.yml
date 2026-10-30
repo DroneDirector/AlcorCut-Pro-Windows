@@ -1,0 +1,66 @@
+name: AI models for Windows
+
+# The phone's AI models in the phone's own format (.tflite) turned into ONNX for ONNX Runtime on Windows,
+# plus the YuNet face finder (MIT). Published once as the release "ai-models-win-v1".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Tools
+        run: pip install --quiet "tensorflow-cpu==2.17.*" "tf2onnx==1.16.1" onnx onnxruntime numpy
+      - name: Download
+        run: |
+          set -e
+          mkdir -p m && cd m
+          for f in nafnet deeplab esrgan; do
+            curl -sSL -o $f.tflite "https://github.com/DroneDirector/Android-Projects/releases/download/ai-models-v1/$f.tflite"
+          done
+          curl -sSL -o face_detection_yunet_2023mar.onnx "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+          curl -sSL -o YuNet-LICENSE.txt "https://raw.githubusercontent.com/opencv/opencv_zoo/main/models/face_detection_yunet/LICENSE"
+          ls -la
+      - name: Convert
+        run: |
+          set -e
+          cd m
+          for f in nafnet deeplab esrgan; do
+            python -m tf2onnx.convert --tflite $f.tflite --output $f.onnx --opset 17 2>&1 | tail -5
+          done
+          ls -la
+      - name: Check
+        run: |
+          cd m
+          python - <<'PY' | tee model-info.txt
+          import onnxruntime as ort, numpy as np, glob
+          for f in sorted(glob.glob("*.onnx")):
+              s = ort.InferenceSession(f, providers=["CPUExecutionProvider"])
+              print("==", f)
+              feeds = {}
+              for i in s.get_inputs():
+                  print("  in ", i.name, i.shape, i.type)
+                  shape = [d if isinstance(d, int) and d > 0 else 1 for d in i.shape]
+                  feeds[i.name] = np.random.rand(*shape).astype(np.float32)
+              for o in s.get_outputs(): print("  out", o.name, o.shape, o.type)
+              try:
+                  r = s.run(None, feeds)
+                  print("  ran:", [x.shape for x in r])
+              except Exception as e:
+                  print("  run failed:", e)
+          PY
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd m
+          sha256sum nafnet.onnx deeplab.onnx esrgan.onnx face_detection_yunet_2023mar.onnx > SHA256SUMS.txt
+          gh release delete ai-models-win-v1 -y -R ${{ github.repository }} 2>/dev/null || true
+          gh release create ai-models-win-v1 -R ${{ github.repository }} -t "AI models for Windows" -n "ONNX versions of the app's AI models (NAFNet MIT, DeepLab v3 Apache 2.0, ESRGAN Apache 2.0) and YuNet (MIT)." \
+            nafnet.onnx deeplab.onnx esrgan.onnx face_detection_yunet_2023mar.onnx YuNet-LICENSE.txt model-info.txt SHA256SUMS.txt
