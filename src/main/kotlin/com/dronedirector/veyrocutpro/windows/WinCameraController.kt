@@ -836,7 +836,7 @@ class ProCameraController(private val context: Context) {
     }
 
     fun setAntiFlicker(v: Int) { CaptureExtras.antiFlicker = v; CaptureExtras.save(context); applyControls() }
-    fun setDualCam(on: Boolean) { toast("Two cameras at once comes with the phone link") }
+    fun setDualCam(on: Boolean) { toast("Two cameras at once needs a phone that can run both") }
     fun macroLensIndex(): Int? = null
     fun macro() { toast("This camera has no macro lens") }
 
@@ -1495,7 +1495,7 @@ class ProCameraController(private val context: Context) {
             when {
                 uri == null -> toast("Nothing recorded — keep recording a little longer")
                 s0.mode.isLapse -> toast("Saved · ${r.frames} frames → %.1f s of video".format(r.frames / 30f))
-                s0.mode.isSlowMo -> toast("Slow-motion video saved (%.0f× slower)".format((cam?.current?.fps ?: 60f) / 30f))
+                s0.mode.isSlowMo -> toast("Slow-motion video saved (${"%.0f".format((cam?.current?.fps ?: 60f) / 30f)}× slower)")
                 r.dropped > 10 -> toast("Video saved — the PC couldn't keep up with ${r.dropped} pictures; try a lower resolution or frame rate")
             }
             if (s0.mode.isNormalVideo && s0.audio) setAudioMonitoring(true)

@@ -1,6 +1,14 @@
 # Changelog — AlcorCut Pro for Windows
 
 ## Unreleased
+- **Capture is on Windows**, with the phone's screens, controls and wording, and a start screen (Capture · Editor) like the phone's. Desktop shortcuts straight to Capture or the Photo editor (start screen → gear).
+- **PC cameras**: webcams, HDMI capture cards and cameras in webcam mode. Manual shutter, ISO (gain), focus, white balance in Kelvin, EV, zoom and anti-flicker where the camera offers them; histogram, zebras, focus peaking, false colour, filters, log profiles, monitoring LUT and live face blur.
+- **Video** with the PC's own H.264 / HEVC encoders and sound (input gain, limiter, wind filter, a WAV next to each clip), time-lapse, hyperlapse, slow motion (60 fps cameras and up), motion blur, title, timecode, slate, recording in the frame guide's shape.
+- **Photos**: burst, bracketing, intervals, timer, long exposure (trails, silky water, night sky), portrait blur, focus bracketing for the editor's focus stack.
+- **Live streaming** to YouTube, Twitch, Facebook, TikTok or any RTMP / RTMPS server.
+- **Your phone as the PC's camera** (Connect to PC in the phone app, 1.0.808 and newer): over Wi-Fi or a USB cable with USB tethering, PIN-protected; the PC shows the live picture and works the phone's camera, and every photo and video is copied to the PC at full quality.
+- **Tethered pro cameras** over USB: shutter from the PC, ISO / shutter / white balance / exposure compensation where the camera offers them, live view on Nikon and Canon EOS bodies, and every new photo copied to the PC straight away.
+- Remote monitor from a browser, microphone and speaker choice (Audio hardware), and the Capture gallery (videos play in Windows' own player).
 - **Faster and smoother**: the photo on screen is only redrawn when it changes, so sliders, zooming and the panels respond much more quickly (it was copied again for every screen update before).
 - Everything new in the phone app's photo editor: photo layers with blend modes, colour samplers, focus mask, MERGE PHOTOS ▾ in the toolbar, HDR without ghosts, long exposure from a video (comes with the video editor on Windows), swipe between photos, NEXT UNEDITED →, recently used tools, recent projects next to the catalog card.
 - Library: keyword tree, colour labels, calendar, people (face recognition comes with the AI update), watched folders, Pro import from an SD card or drive, geotagging from a GPX track, proofing and client picks, photo book PDF.
