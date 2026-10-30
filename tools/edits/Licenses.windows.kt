@@ -8,5 +8,11 @@ private val NOTICES = listOf(
     Notice("MobileSAM (Magic Mask object selection)", "Chaoning Zhang et al.", "Apache License 2.0", "https://github.com/ChaoningZhang/MobileSAM"),
     Notice("Segment Anything (mask decoder in MobileSAM)", "Meta Platforms, Inc.", "Apache License 2.0", "https://github.com/facebookresearch/segment-anything"),
     Notice("LaMa — Resolution-robust Large Mask Inpainting (object removal, downloaded on first use); ONNX port by Carve", "Samsung AI Center Moscow (advimman)", "Apache License 2.0", "https://github.com/advimman/lama"),
+    Notice("NAFNet (AI noise reduction), SIDD width-32 weights, exported to ONNX", "megvii-research", "MIT License", "https://github.com/megvii-research/NAFNet"),
+    Notice("DeepLab v3 (subject and people selection)", "Google LLC / TensorFlow authors", "Apache License 2.0", "https://github.com/tensorflow/models/tree/master/research/deeplab"),
+    Notice("ESRGAN (AI upscaling)", "Xintao Wang et al. / TensorFlow Hub authors", "Apache License 2.0", "https://github.com/xinntao/ESRGAN"),
+    Notice("YuNet face detection (OpenCV Zoo)", "Shiqi Yu, Wei Wu and OpenCV contributors", "MIT License", "https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet"),
+    Notice("SFace face recognition (OpenCV Zoo, People in the library)", "Yaoyao Zhong, Weihong Deng and OpenCV contributors", "Apache License 2.0", "https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface"),
+    Notice("tf2onnx (model conversion for Windows)", "ONNX Project contributors", "Apache License 2.0", "https://github.com/onnx/tensorflow-onnx"),
     Notice("Natural Earth 1:110m land outlines (Library map view)", "Natural Earth (naturalearthdata.com)", "Public domain", "https://www.naturalearthdata.com/about/terms-of-use/"),
 )
