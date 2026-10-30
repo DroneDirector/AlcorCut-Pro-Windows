@@ -42,7 +42,7 @@ copy editor/Rename.kt
 copy camera/CaptureExtras.kt
 copy camera/SimpleMode.kt
 copy camera/ShutterSounds.kt
-take camera/CameraModel.kt CaptureMode
+copy camera/CameraModel.kt
 
 # AI (models run with ONNX Runtime / the phone's AI runtime layer)
 copy editor/AiDenoiser.kt
@@ -104,14 +104,14 @@ copy ui/AiBadge.kt
 copy ui/Guide.kt
 copy ui/Licenses.kt
 copy ui/Tour.kt
-take ui/SettingsPanel.kt SettingsGroup AccentPicker
-take ui/HomeScreen.kt AppScreen StartScreen
+copy ui/SettingsPanel.kt
+copy ui/HomeScreen.kt
 copy ui/CloudAiSettings.kt
 copy ui/Backup.kt
 copy ui/UprightThumb.kt
 copy ui/KeepSettings.kt
 take ui/Monitor.kt MonitorClass monitorClass
-take ui/Scopes.kt ScopeMath
+copy ui/Scopes.kt
 
 # Added with the October phone features
 copy ui/ThemedIcon.kt
@@ -159,6 +159,38 @@ take editor/Stills.kt PhotoRoundTrip
 take editor/VideoLibrary.kt LibVideo VideoLibrary
 assetdir fonts
 
+# Capture (the camera itself is Windows code: windows/WinCamera*.kt)
+copy ui/CameraScreen.kt
+copy ui/Controls.kt
+copy ui/Overlays.kt
+copy ui/FocusRail.kt
+copy ui/Gallery.kt
+copy ui/LiveUi.kt
+copy ui/GlowLogo.kt
+copy ui/HomeShortcuts.kt
+copy camera/CamPresets.kt
+take camera/Grade.kt Grade GradeLut Favorites Ratings GradeDetail
+copy camera/AudioMeter.kt
+copy ui/Teleprompter.kt
+copy ui/Draggable.kt
+copy ui/LongExposureUi.kt
+copy ui/PortraitBlur.kt
+copy camera/Slate.kt
+copy camera/LongExposure.kt
+copy camera/CaptureKeys.kt
+copy camera/Portrait.kt
+copy camera/PortraitLive.kt
+copy camera/RemoteMonitor.kt
+copy camera/Timecode.kt
+copy camera/FrameAnalyzer.kt
+copy camera/FaceBlur.kt
+take camera/PhotoSizes.kt PhotoSize
+copy ui/GradeEditor.kt
+edit ui/GradeEditor.kt GradeEditor.py
+copy ui/StopMotion.kt
+edit ui/StopMotion.kt StopMotion.py
+drop ui/StopMotion.kt makeVideo
+
 # Windows wording (tools/edits)
 edit editor/PhotoEditor.kt PhotoEditor.py
 edit editor/SaveFolder.kt SaveFolder.py
@@ -167,4 +199,6 @@ edit editor/SaveFolder.kt SaveFolder.py
 asset i18n/da.json
 asset i18n/fo.json
 asset world_land.bin
+res drawable/ic_launcher_background.xml
+res drawable/ic_launcher_foreground.xml
 swap ui/Licenses.kt NOTICES Licenses.windows.kt

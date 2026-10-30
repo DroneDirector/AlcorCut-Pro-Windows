@@ -30,6 +30,19 @@ object GradeIO {
     /** A video frame (the video engine comes with the Windows video editor). */
     fun videoFrame(context: Context, uri: Uri, timeUs: Long, maxPx: Int): Bitmap? = null
 
+    /** The graded photo as a new JPEG next to the others. */
+    fun savePhoto(context: Context, uri: Uri, grade: Grade, area: StorageArea = StorageArea.CAPTURE): Uri? {
+        val src = decode(context, uri, 0) ?: return null
+        var out = GradeLut(grade).apply(src)
+        if (grade.hasDetail) { val d = GradeDetail.apply(out, grade); if (d !== out) out = d }
+        val values = android.content.ContentValues().apply { put("_display_name", gradedName("PRO", "jpg")); put("mime_type", "image/jpeg") }
+        val target = Storage.insert(context, Storage.load(context, area), values, Storage.Kind.IMAGE) ?: return null
+        return try {
+            context.contentResolver.openOutputStream(target)?.use { out.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+            target
+        } catch (_: Throwable) { Storage.discard(context, target); null }
+    }
+
     fun gradedName(prefix: String, ext: String) =
         prefix + "_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + "." + ext
 

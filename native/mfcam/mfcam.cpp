@@ -10,6 +10,8 @@
 #include <ks.h>
 #include <ksmedia.h>
 #include <codecapi.h>
+#include <wmcodecdsp.h>
+#include <icodecapi.h>
 #include <jni.h>
 #include <string>
 #include <vector>
@@ -235,7 +237,7 @@ JNIEXPORT jobjectArray JNICALL JN(controls)(JNIEnv* env, jclass, jlong h) {
             char b[128]; snprintf(b, sizeof b, "0 %ld %ld %ld %ld %ld %ld %d %d", id, mn, mx, st, df, v, (vf & CameraControl_Flags_Auto) ? 1 : 0, (fl & CameraControl_Flags_Auto) ? 1 : 0);
             out.push_back(b);
         }
-        if (c->procAmp) for (long id = VideoProcAmp_Brightness; id <= VideoProcAmp_Gain; id++) {
+        if (c->procAmp) for (long id = VideoProcAmp_Brightness; id <= 13; id++) {
             long mn, mx, st, df, fl, v = 0, vf = 0;
             if (FAILED(c->procAmp->GetRange(id, &mn, &mx, &st, &df, &fl))) continue;
             c->procAmp->Get(id, &v, &vf);
@@ -402,6 +404,213 @@ JNIEXPORT jboolean JNICALL JN(recClose)(JNIEnv* env, jclass, jlong h) {
     delete r;
     if (FAILED(hr)) { fail("Finishing the video failed", hr); return JNI_FALSE; }
     return JNI_TRUE;
+}
+
+// ------------------------------------------------------------------ live encoding (raw H.264 + AAC for streaming)
+
+struct Enc {
+    IMFTransform* video = nullptr;
+    IMFTransform* audio = nullptr;
+    UINT32 w = 0, h = 0;
+    std::vector<BYTE> nv12;
+    std::string sps;   // sequence header (Annex-B SPS + PPS)
+    std::mutex lock;
+};
+
+static HRESULT drain(IMFTransform* t, std::string& out, bool lengthPrefix, std::string* header) {
+    MFT_OUTPUT_STREAM_INFO info = {};
+    HRESULT hr = t->GetOutputStreamInfo(0, &info);
+    if (FAILED(hr)) return hr;
+    for (;;) {
+        MFT_OUTPUT_DATA_BUFFER ob = {};
+        IMFSample* s = nullptr; IMFMediaBuffer* b = nullptr;
+        if (!(info.dwFlags & (MFT_OUTPUT_STREAM_PROVIDES_SAMPLES | MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES))) {
+            MFCreateSample(&s); MFCreateMemoryBuffer(info.cbSize > 0 ? info.cbSize : (1 << 20), &b); s->AddBuffer(b); ob.pSample = s;
+        }
+        DWORD status = 0;
+        hr = t->ProcessOutput(0, 1, &ob, &status);
+        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) { release(b); release(s); if (ob.pEvents) ob.pEvents->Release(); return S_OK; }
+        if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+            IMFMediaType* t2 = nullptr;
+            if (SUCCEEDED(t->GetOutputAvailableType(0, 0, &t2))) { t->SetOutputType(0, t2, 0); t2->Release(); }
+            release(b); release(s); if (ob.pEvents) ob.pEvents->Release();
+            t->GetOutputStreamInfo(0, &info);
+            continue;
+        }
+        if (FAILED(hr)) { release(b); release(s); if (ob.pEvents) ob.pEvents->Release(); return hr; }
+        IMFSample* got = ob.pSample;
+        IMFMediaBuffer* cb = nullptr;
+        if (got && SUCCEEDED(got->ConvertToContiguousBuffer(&cb))) {
+            BYTE* d = nullptr; DWORD len = 0;
+            if (SUCCEEDED(cb->Lock(&d, nullptr, &len))) {
+                if (lengthPrefix) { BYTE l2[2] = { (BYTE)(len >> 8), (BYTE)len }; out.append((char*)l2, 2); }
+                else {
+                    // Each frame: a 4-byte marker (0 0 0 0 = key frame, 0 0 0 1 = other) and a 4-byte length, then the data.
+                    UINT32 key = 0; got->GetUINT32(MFSampleExtension_CleanPoint, &key);
+                    if (key) out.append("\x00\x00\x00\x00", 4); else out.append("\x00\x00\x00\x01", 4);
+                    BYTE l4[4] = { (BYTE)(len >> 24), (BYTE)(len >> 16), (BYTE)(len >> 8), (BYTE)len }; out.append((char*)l4, 4);
+                }
+                out.append((char*)d, len);
+                cb->Unlock();
+            }
+            cb->Release();
+        }
+        if (got && got != s) got->Release();
+        release(b); release(s);
+        if (ob.pEvents) ob.pEvents->Release();
+        if (header && header->empty()) {
+            IMFMediaType* ot = nullptr;
+            if (SUCCEEDED(t->GetOutputCurrentType(0, &ot))) {
+                UINT32 n = 0;
+                if (SUCCEEDED(ot->GetBlobSize(MF_MT_MPEG_SEQUENCE_HEADER, &n)) && n > 0) {
+                    header->resize(n); ot->GetBlob(MF_MT_MPEG_SEQUENCE_HEADER, (UINT8*)&(*header)[0], n, nullptr);
+                }
+                ot->Release();
+            }
+        }
+    }
+}
+
+/** A live encoder: H.264 (Microsoft's encoder, constant bit rate, a key frame every 2 s) and AAC 48 kHz stereo. */
+JNIEXPORT jlong JNICALL JN(encOpen)(JNIEnv* env, jclass, jint w, jint h, jint fps, jint bitrate, jint abitrate) {
+    com();
+    Enc* e = new Enc(); e->w = w; e->h = h; e->nv12.resize((size_t)w * h * 3 / 2);
+    HRESULT hr = CoCreateInstance(CLSID_CMSH264EncoderMFT, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&e->video));
+    IMFMediaType* ot = nullptr; IMFMediaType* it = nullptr;
+    if (SUCCEEDED(hr)) hr = MFCreateMediaType(&ot);
+    if (SUCCEEDED(hr)) { ot->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video); ot->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
+        ot->SetUINT32(MF_MT_AVG_BITRATE, (UINT32)bitrate); ot->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+        MFSetAttributeSize(ot, MF_MT_FRAME_SIZE, w, h); MFSetAttributeRatio(ot, MF_MT_FRAME_RATE, fps, 1); MFSetAttributeRatio(ot, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+        ot->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Main);
+        hr = e->video->SetOutputType(0, ot, 0); }
+    if (SUCCEEDED(hr)) hr = MFCreateMediaType(&it);
+    if (SUCCEEDED(hr)) { it->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video); it->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
+        it->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+        MFSetAttributeSize(it, MF_MT_FRAME_SIZE, w, h); MFSetAttributeRatio(it, MF_MT_FRAME_RATE, fps, 1); MFSetAttributeRatio(it, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+        hr = e->video->SetInputType(0, it, 0); }
+    release(ot); release(it);
+    if (SUCCEEDED(hr)) {
+        ICodecAPI* api = nullptr;
+        if (SUCCEEDED(e->video->QueryInterface(IID_PPV_ARGS(&api)))) {
+            VARIANT v; VariantInit(&v);
+            v.vt = VT_UI4; v.ulVal = eAVEncCommonRateControlMode_CBR; api->SetValue(&CODECAPI_AVEncCommonRateControlMode, &v);
+            v.vt = VT_UI4; v.ulVal = (ULONG)(fps * 2); api->SetValue(&CODECAPI_AVEncMPVGOPSize, &v);
+            v.vt = VT_BOOL; v.boolVal = VARIANT_TRUE; api->SetValue(&CODECAPI_AVLowLatencyMode, &v);
+            v.vt = VT_UI4; v.ulVal = 0; api->SetValue(&CODECAPI_AVEncMPVDefaultBPictureCount, &v);
+            api->Release();
+        }
+        e->video->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+        e->video->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+    }
+    if (FAILED(hr)) { fail("The H.264 encoder couldn't start", hr); release(e->video); delete e; return 0; }
+
+    HRESULT ah = CoCreateInstance(CLSID_AACMFTEncoder, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&e->audio));
+    IMFMediaType* ai = nullptr; IMFMediaType* ao = nullptr;
+    if (SUCCEEDED(ah)) ah = MFCreateMediaType(&ai);
+    if (SUCCEEDED(ah)) { ai->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio); ai->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+        ai->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16); ai->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, 48000); ai->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, 2);
+        ah = e->audio->SetInputType(0, ai, 0); }
+    if (SUCCEEDED(ah)) ah = MFCreateMediaType(&ao);
+    if (SUCCEEDED(ah)) { ao->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio); ao->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_AAC);
+        ao->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16); ao->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, 48000); ao->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, 2);
+        ao->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, (UINT32)(abitrate / 8)); ao->SetUINT32(MF_MT_AAC_PAYLOAD_TYPE, 0);
+        ah = e->audio->SetOutputType(0, ao, 0); }
+    release(ai); release(ao);
+    if (SUCCEEDED(ah)) { e->audio->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0); e->audio->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0); }
+    else release(e->audio);
+    return (jlong)e;
+}
+
+static jbyteArray bytes(JNIEnv* env, const std::string& s) {
+    jbyteArray a = env->NewByteArray((jsize)s.size());
+    if (!s.empty()) env->SetByteArrayRegion(a, 0, (jsize)s.size(), (const jbyte*)s.data());
+    return a;
+}
+
+/**
+ * One picture (ARGB) at [ts] (100 ns). Returns the encoded output so far: per frame a 4-byte marker
+ * (0 0 0 0 = key frame, 0 0 0 1 = other), a 4-byte length and the H.264 data (Annex-B start codes).
+ */
+JNIEXPORT jbyteArray JNICALL JN(encVideo)(JNIEnv* env, jclass, jlong h, jintArray px, jlong ts, jlong dur) {
+    com();
+    Enc* e = (Enc*)h; if (!e || !e->video) return nullptr;
+    std::lock_guard<std::mutex> g(e->lock);
+    const UINT32 w = e->w, hh = e->h;
+    jint* p = (jint*)env->GetPrimitiveArrayCritical(px, nullptr);
+    if (!p) return nullptr;
+    BYTE* Y = e->nv12.data(); BYTE* UV = Y + (size_t)w * hh;
+    for (UINT32 y = 0; y < hh; y++) {
+        for (UINT32 x = 0; x < w; x++) {
+            UINT32 c = (UINT32)p[(size_t)y * w + x];
+            int r = (c >> 16) & 255, gg = (c >> 8) & 255, b = c & 255;
+            Y[(size_t)y * w + x] = (BYTE)(((66 * r + 129 * gg + 25 * b + 128) >> 8) + 16);
+            if (!(y & 1) && !(x & 1)) {
+                UV[(size_t)(y / 2) * w + x] = (BYTE)(((-38 * r - 74 * gg + 112 * b + 128) >> 8) + 128);
+                UV[(size_t)(y / 2) * w + x + 1] = (BYTE)(((112 * r - 94 * gg - 18 * b + 128) >> 8) + 128);
+            }
+        }
+    }
+    env->ReleasePrimitiveArrayCritical(px, p, JNI_ABORT);
+    IMFMediaBuffer* b = nullptr; IMFSample* s = nullptr; BYTE* d = nullptr;
+    const DWORD n = (DWORD)e->nv12.size();
+    HRESULT hr = MFCreateMemoryBuffer(n, &b);
+    if (SUCCEEDED(hr)) hr = b->Lock(&d, nullptr, nullptr);
+    if (SUCCEEDED(hr)) { memcpy(d, e->nv12.data(), n); b->Unlock(); b->SetCurrentLength(n); }
+    if (SUCCEEDED(hr)) hr = MFCreateSample(&s);
+    if (SUCCEEDED(hr)) { s->AddBuffer(b); s->SetSampleTime(ts); s->SetSampleDuration(dur); }
+    std::string out;
+    if (SUCCEEDED(hr)) {
+        hr = e->video->ProcessInput(0, s, 0);
+        if (hr == MF_E_NOTACCEPTING) { drain(e->video, out, false, &e->sps); hr = e->video->ProcessInput(0, s, 0); }
+        drain(e->video, out, false, &e->sps);
+    }
+    release(s); release(b);
+    if (FAILED(hr)) { fail("Encoding the picture failed", hr); return nullptr; }
+    return bytes(env, out);
+}
+
+/** The H.264 sequence header (SPS + PPS, Annex-B), once the encoder has produced it. */
+JNIEXPORT jbyteArray JNICALL JN(encHeader)(JNIEnv* env, jclass, jlong h) {
+    Enc* e = (Enc*)h; if (!e) return nullptr;
+    std::lock_guard<std::mutex> g(e->lock);
+    if (e->sps.empty() && e->video) {
+        IMFMediaType* ot = nullptr;
+        if (SUCCEEDED(e->video->GetOutputCurrentType(0, &ot))) {
+            UINT32 n = 0;
+            if (SUCCEEDED(ot->GetBlobSize(MF_MT_MPEG_SEQUENCE_HEADER, &n)) && n > 0) { e->sps.resize(n); ot->GetBlob(MF_MT_MPEG_SEQUENCE_HEADER, (UINT8*)&e->sps[0], n, nullptr); }
+            ot->Release();
+        }
+    }
+    return bytes(env, e->sps);
+}
+
+/** Sound: 16-bit stereo PCM in; AAC frames out, each with a 2-byte length. */
+JNIEXPORT jbyteArray JNICALL JN(encAudio)(JNIEnv* env, jclass, jlong h, jbyteArray pcm, jint n, jlong ts, jlong dur) {
+    com();
+    Enc* e = (Enc*)h; if (!e || !e->audio || n <= 0) return nullptr;
+    std::lock_guard<std::mutex> g(e->lock);
+    IMFMediaBuffer* b = nullptr; IMFSample* s = nullptr; BYTE* d = nullptr;
+    HRESULT hr = MFCreateMemoryBuffer((DWORD)n, &b);
+    if (SUCCEEDED(hr)) hr = b->Lock(&d, nullptr, nullptr);
+    if (SUCCEEDED(hr)) { env->GetByteArrayRegion(pcm, 0, n, (jbyte*)d); b->Unlock(); b->SetCurrentLength((DWORD)n); }
+    if (SUCCEEDED(hr)) hr = MFCreateSample(&s);
+    if (SUCCEEDED(hr)) { s->AddBuffer(b); s->SetSampleTime(ts); s->SetSampleDuration(dur); }
+    std::string out;
+    if (SUCCEEDED(hr)) {
+        hr = e->audio->ProcessInput(0, s, 0);
+        if (hr == MF_E_NOTACCEPTING) { drain(e->audio, out, true, nullptr); hr = e->audio->ProcessInput(0, s, 0); }
+        drain(e->audio, out, true, nullptr);
+    }
+    release(s); release(b);
+    if (FAILED(hr)) return nullptr;
+    return bytes(env, out);
+}
+
+JNIEXPORT void JNICALL JN(encClose)(JNIEnv* env, jclass, jlong h) {
+    com();
+    Enc* e = (Enc*)h; if (!e) return;
+    { std::lock_guard<std::mutex> g(e->lock); release(e->video); release(e->audio); }
+    delete e;
 }
 
 } // extern "C"

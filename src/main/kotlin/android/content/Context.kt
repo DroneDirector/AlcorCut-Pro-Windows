@@ -22,6 +22,11 @@ open class Context {
         const val NSD_SERVICE = "servicediscovery"
         const val USB_SERVICE = "usb"
         const val BATTERY_SERVICE = "batterymanager"
+        const val DISPLAY_SERVICE = "display"
+        const val SENSOR_SERVICE = "sensor"
+        const val POWER_SERVICE = "power"
+        const val LOCATION_SERVICE = "location"
+        const val WINDOW_SERVICE = "window"
         const val RECEIVER_NOT_EXPORTED = 4
         const val RECEIVER_EXPORTED = 2
 
@@ -62,6 +67,11 @@ open class Context {
         CLIPBOARD_SERVICE -> ClipboardManager()
         ACTIVITY_SERVICE -> android.app.ActivityManager()
         USB_SERVICE -> android.hardware.usb.UsbManager()
+        DISPLAY_SERVICE -> android.hardware.display.DisplayManager()
+        SENSOR_SERVICE -> android.hardware.SensorManager()
+        POWER_SERVICE -> android.os.PowerManager()
+        BATTERY_SERVICE -> android.os.BatteryManager()
+        AUDIO_SERVICE -> android.media.AudioManager()
         else -> null
     }
 

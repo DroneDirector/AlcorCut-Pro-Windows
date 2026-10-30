@@ -13,6 +13,7 @@ tools/sync.txt lists what comes over:
   edit <file> <python file>       after copying, apply replacements from tools/edits/<python file>
   swap <file> <Name> <text file>  replace one top-level declaration with tools/edits/<text file>
   asset <file>                    copy a bundled file from the app's assets into src/main/resources
+  res <file>                      copy a file from the app's res folder (e.g. a vector drawable) into src/main/resources
 Files written by this tool start from the Android version every time, so changes belong in
 tools/edits, never in the copied files.
 """
@@ -125,6 +126,12 @@ def main():
             for n in names:
                 shutil.copyfile(os.path.join(srcd, n), os.path.join(dstd, n))
             open(os.path.join(dstd, 'index.txt'), 'w').write('\n'.join(names) + '\n')
+            continue
+        if cmd == 'res':
+            import shutil
+            dst = os.path.join(ROOT, 'src/main/resources', f)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(os.path.join(sys.argv[1], 'app/src/main/res', f), dst)
             continue
         if cmd == 'asset':
             import shutil

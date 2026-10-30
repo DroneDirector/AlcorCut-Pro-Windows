@@ -1,8 +1,42 @@
 package com.dronedirector.veyrocutpro.ui
 
 import android.graphics.Bitmap
+import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.dronedirector.veyrocutpro.ui.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** Waveform, RGB parade and vectorscope, measured from the viewfinder picture a few times a second. */
 object ScopeMath {
@@ -72,3 +106,73 @@ object ScopeMath {
         return Bitmap.createBitmap(out, s, s, Bitmap.Config.ARGB_8888)
     }
 }
+
+/** A live scope box, fed from the viewfinder. */
+@Composable
+fun LiveScope(previewView: PreviewView, mode: Int, width: Dp, height: Dp) {
+    var img by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(mode) {
+        while (true) {
+            val snap = try { previewView.bitmap } catch (_: Throwable) { null }
+            if (snap != null) {
+                img = withContext(Dispatchers.Default) {
+                    val small = Bitmap.createScaledBitmap(snap, 128, (128f * snap.height / snap.width).toInt().coerceIn(32, 256), true)
+                    ScopeMath.render(small, mode)
+                }
+            }
+            delay(140)
+        }
+    }
+    val boxW = if (mode == 3) height else width
+    Box(
+        Modifier.size(boxW, height).clip(RoundedCornerShape(6.dp)).background(Color.Black.copy(alpha = 0.6f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            if (mode == 3) {
+                val cx = size.width / 2f; val cy = size.height / 2f; val r = min(cx, cy) * 0.95f
+                drawCircle(Color.White.copy(alpha = 0.2f), r, Offset(cx, cy), style = androidx.compose.ui.graphics.drawscope.Stroke(1f))
+                drawCircle(Color.White.copy(alpha = 0.12f), r * 0.5f, Offset(cx, cy), style = androidx.compose.ui.graphics.drawscope.Stroke(1f))
+                // Skin-tone line (about 123° on a vectorscope).
+                val a = Math.toRadians(-123.0)
+                drawLine(Color(0xFFFFB37A).copy(alpha = 0.7f), Offset(cx, cy), Offset(cx + (cos(a) * r).toFloat(), cy + (sin(a) * r).toFloat()), 1.5f)
+            } else {
+                for (f in listOf(0.1f, 0.5f, 0.9f)) drawLine(Color.White.copy(alpha = 0.15f), Offset(0f, size.height * (1 - f)), Offset(size.width, size.height * (1 - f)), 1f)
+            }
+        }
+        img?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize()) }
+        Text(listOf("", "WAVEFORM", "PARADE", "VECTOR")[mode.coerceIn(0, 3)], style = Pro.Label.copy(fontSize = 7.sp, color = Pro.Dim), modifier = Modifier.align(Alignment.TopStart).padding(3.dp))
+    }
+}
+
+/** Focus magnifier: the middle of the viewfinder, enlarged, while focusing by hand. */
+@Composable
+fun FocusMagnifier(previewView: PreviewView, focusPoint: Pair<Float, Float>?, modifier: Modifier = Modifier) {
+    var img by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(focusPoint) {
+        while (true) {
+            val snap = try { previewView.bitmap } catch (_: Throwable) { null }
+            if (snap != null) {
+                img = withContext(Dispatchers.Default) {
+                    // The tap-to-focus point is in view pixels.
+                    val fx = focusPoint?.let { it.first / previewView.width.coerceAtLeast(1) } ?: 0.5f
+                    val fy = focusPoint?.let { it.second / previewView.height.coerceAtLeast(1) } ?: 0.5f
+                    val cw = (snap.width / 4).coerceAtLeast(16); val ch = (cw * 0.66f).toInt().coerceAtLeast(16)
+                    val x = (fx * snap.width - cw / 2).toInt().coerceIn(0, snap.width - cw)
+                    val y = (fy * snap.height - ch / 2).toInt().coerceIn(0, snap.height - ch)
+                    Bitmap.createBitmap(snap, x, y, cw, ch)
+                }
+            }
+            delay(80)
+        }
+    }
+    Column(modifier.clip(RoundedCornerShape(8.dp)).border(2.dp, Pro.Amber, RoundedCornerShape(8.dp)).background(Color.Black)) {
+        Box(Modifier.size(220.dp, 146.dp)) {
+            img?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+            Text("FOCUS ×4", style = Pro.Label.copy(color = Pro.Amber, fontSize = 8.sp), modifier = Modifier.align(Alignment.TopStart).padding(4.dp))
+        }
+    }
+}
+
+@Suppress("unused")
+private fun hypot(a: Float, b: Float) = sqrt(a * a + b * b) + atan2(0f, 1f)
