@@ -136,6 +136,14 @@ class ProCameraController(private val context: Context) {
     private var cam: PcCamera? = null
     private var devices: List<PcDevice> = emptyList()
     private var phones: List<PhoneDevice> = emptyList()
+    private var tethers: List<TetherDevice> = emptyList()
+    /** The tethered pro camera in use, or null. */
+    @Volatile private var tether: TetherCamera? = null
+    private var tetherJob: kotlinx.coroutines.Job? = null
+    private var tIso: TetherCamera.Prop? = null
+    private var tShutter: TetherCamera.Prop? = null
+    private var tWb: TetherCamera.Prop? = null
+    private var tEv: TetherCamera.Prop? = null
     private var watchJob: kotlinx.coroutines.Job? = null
     /** The phone in use as the camera (Connect to PC), or null for a PC camera. */
     @Volatile private var phone: PhoneLink? = null
@@ -150,7 +158,8 @@ class ProCameraController(private val context: Context) {
     private fun updateLenses() {
         val pcs = devices.map { Lens(it.link, androidx.camera.core.CameraSelector.LENS_FACING_FRONT, it.name, androidx.camera.core.CameraInfo()) }
         val ph = phones.map { Lens(it.link, androidx.camera.core.CameraSelector.LENS_FACING_BACK, "Phone · " + it.name, androidx.camera.core.CameraInfo()) }
-        set { it.copy(lenses = pcs + ph) }
+        val tc = tethers.map { Lens(it.link, androidx.camera.core.CameraSelector.LENS_FACING_BACK, "Camera · " + it.name, androidx.camera.core.CameraInfo()) }
+        set { it.copy(lenses = pcs + ph + tc) }
     }
 
     /** The PIN typed on the PC for [d] (shown on the phone). */
@@ -176,6 +185,75 @@ class ProCameraController(private val context: Context) {
     }
     fun cancelPin() { pinRequest = null; pinError = null }
     fun lastPin(d: PhoneDevice): String = prefs.getString("phone_pin_${d.name}", "") ?: ""
+
+    private fun closeTether() {
+        tetherJob?.cancel(); tetherJob = null
+        val t = tether; tether = null
+        if (t != null) io.execute { t.close() }
+    }
+
+    /** A pro camera on USB: its settings, live view (Nikon, Canon EOS) and every new photo copied here. */
+    private suspend fun openTether(d: TetherDevice) {
+        withContext(Dispatchers.IO) { cam?.close() }; cam = null
+        val t = withContext(Dispatchers.IO) { TetherCamera(d).takeIf { it.open() } }
+        if (t == null) { toast("Couldn't open ${d.name}: " + com.dronedirector.veyrocutpro.windows.MfNative.error().ifBlank { "set the camera's USB mode to PC / PTP and close other camera apps" }); return }
+        tether = t
+        previewView?.clear()
+        withContext(Dispatchers.IO) { tIso = t.prop(TetherCamera.ISO); tShutter = t.prop(TetherCamera.SHUTTER); tWb = t.prop(TetherCamera.WB); tEv = t.prop(TetherCamera.EV) }
+        set { s ->
+            s.copy(
+                ready = true, manualSensor = tIso != null || tShutter != null,
+                isoStops = tIso?.allowed?.map { it.toInt() }?.filter { it in 25..409600 }.orEmpty(),
+                shutterStops = tShutter?.allowed?.map { it * 100_000L }?.filter { it > 0 }.orEmpty(),
+                iso = tIso?.value?.toInt() ?: s.iso, shutterNs = tShutter?.value?.let { it * 100_000L } ?: s.shutterNs,
+                manualIso = tIso != null, manualShutter = tShutter != null,
+                evMin = if (tEv != null) -15 else 0, evMax = if (tEv != null) 15 else 0, evStep = 1f / 3f,
+                minFocusDiopters = 0f, hasFlash = false, rawSupported = false, minZoom = 1f, maxZoom = 1f, zoom = 1f,
+                sensorReport = t.model + (if (t.hasLiveView) " · live view" else ""),
+            )
+        }
+        toast("${t.model} connected — new photos are copied to this PC" + if (!t.hasLiveView) " (this camera gives no live view over USB)" else "")
+        tetherJob = scope.launch(Dispatchers.IO) {
+            var lastFetch = 0L
+            val dirFor = { name: String -> Storage.newFile(context, StorageArea.CAPTURE, if (name.substringAfterLast('.').lowercase() in setOf("mov", "mp4")) Storage.Kind.VIDEO else Storage.Kind.IMAGE, name) }
+            while (tether === t) {
+                val now = System.currentTimeMillis()
+                if (now - lastFetch > 1500) {
+                    lastFetch = now
+                    val files = try { t.fetchNew(dirFor) } catch (_: Throwable) { emptyList() }
+                    for (f in files) withContext(Dispatchers.Main) { set { it.copy(lastMedia = android.net.Uri.fromFile(f)) }; toast("Copied from the camera: ${f.name}") }
+                    if (!t.hasLiveView) files.lastOrNull { it.extension.lowercase() in setOf("jpg", "jpeg") }?.let { f -> showStill(f) }
+                }
+                if (t.hasLiveView) {
+                    val jpg = try { t.liveFrame() } catch (_: Throwable) { null }
+                    val img = jpg?.let { try { javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(it)) } catch (_: Throwable) { null } }
+                    if (img != null) {
+                        val px = img.getRGB(0, 0, img.width, img.height, null, 0, img.width)
+                        onFrame(px, img.width, img.height, System.nanoTime() / 100)
+                    } else delay(200)
+                    delay(40)
+                } else delay(300)
+            }
+        }
+    }
+
+    private fun showStill(f: java.io.File) {
+        val img = try { javax.imageio.ImageIO.read(f) } catch (_: Throwable) { null } ?: return
+        val k = minOf(1f, 1920f / maxOf(img.width, img.height))
+        val w = (img.width * k).toInt(); val h = (img.height * k).toInt()
+        val sc = java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        sc.createGraphics().apply { setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR); drawImage(img, 0, 0, w, h, null); dispose() }
+        onFrame(sc.getRGB(0, 0, w, h, null, 0, w), w, h, 0)
+    }
+
+    /** Sends a setting to the tethered camera (nearest value it allows). */
+    private fun tset(p: TetherCamera.Prop?, want: Long): Boolean {
+        val t = tether ?: return false
+        if (p == null) { toast("Change this on the camera itself"); return true }
+        val v = if (p.allowed.isEmpty()) want else p.allowed.minByOrNull { kotlin.math.abs(it - want) } ?: want
+        io.execute { if (!t.set(p, v)) toast("The camera didn't take the setting") }
+        return true
+    }
 
     /** The phone's camera settings, shown on the PC. */
     private fun mirror(m: Map<String, String>) {
@@ -265,7 +343,8 @@ class ProCameraController(private val context: Context) {
         scope.launch {
             devices = withContext(Dispatchers.IO) { PcCamera.list() }
             phones = withContext(Dispatchers.IO) { PhoneLink.discover() }
-            if (devices.isEmpty() && phones.isEmpty()) {
+            tethers = withContext(Dispatchers.IO) { TetherCamera.list() }
+            if (devices.isEmpty() && phones.isEmpty() && tethers.isEmpty()) {
                 toast(if (com.dronedirector.veyrocutpro.windows.MfNative.ok) "No camera found — plug in a webcam or capture card, or connect your phone (Connect to PC)"
                 else "The camera part of the app is missing — reinstall AlcorCut Pro")
                 set { it.copy(lenses = emptyList(), ready = false) }
@@ -284,8 +363,9 @@ class ProCameraController(private val context: Context) {
                     if (phone != null) continue
                     val now = withContext(Dispatchers.IO) { PhoneLink.discover() }
                     val pcs = withContext(Dispatchers.IO) { PcCamera.list() }
-                    if (now.map { it.link }.toSet() != phones.map { it.link }.toSet() || pcs != devices) {
-                        phones = now; devices = pcs
+                    val tcs = if (tether == null) withContext(Dispatchers.IO) { TetherCamera.list() } else tethers
+                    if (now.map { it.link }.toSet() != phones.map { it.link }.toSet() || pcs != devices || tcs != tethers) {
+                        phones = now; devices = pcs; tethers = tcs
                         val keep = st.lens?.id
                         updateLenses()
                         st.lenses.indexOfFirst { it.id == keep }.takeIf { it >= 0 }?.let { i -> set { it.copy(lensIndex = i) } }
@@ -308,6 +388,7 @@ class ProCameraController(private val context: Context) {
 
     private fun closeCamera() {
         watchJob?.cancel(); watchJob = null
+        closeTether()
         phone?.close(); phone = null
         cam?.close(); cam = null
         synchronized(latestLock) { latest = null }
@@ -324,6 +405,8 @@ class ProCameraController(private val context: Context) {
             return
         }
         phone?.close(); phone = null
+        closeTether()
+        tethers.firstOrNull { it.link == lens.id }?.let { t -> openTether(t); return }
         val dev = devices.firstOrNull { it.link == lens.id } ?: return
         val c = withContext(Dispatchers.IO) { cam?.close(); PcCamera(dev).takeIf { it.open() } }
         if (c == null) {
@@ -390,7 +473,7 @@ class ProCameraController(private val context: Context) {
 
     /** Starts the camera in the format the mode needs. */
     private fun bind() {
-        if (phone != null) return
+        if (phone != null || tether != null) return
         val c = cam ?: return
         val s = st
         if (s.mode == CaptureMode.LIVE && !live.state.value.isBusy) { /* the stream reads from here too */ }
@@ -592,7 +675,7 @@ class ProCameraController(private val context: Context) {
         val lut = CaptureExtras.monitorLut?.let { com.dronedirector.veyrocutpro.editor.LutLibrary.get(it) }
         val curve = logCurve(s)
         val filter = s.filter
-        if (viaPhone) { recordPipe = null; previewPipe = null; return }
+        if (viaPhone || tether != null) { recordPipe = null; previewPipe = null; return }
         io.execute {
             val rec = ColorPipe(filter, curve, if (CaptureExtras.bakeLut) lut else null)
             val view = if (!s.logAssist && (lut == null || CaptureExtras.bakeLut)) rec else ColorPipe(filter, if (s.logAssist) 0 else curve, lut)
@@ -605,7 +688,7 @@ class ProCameraController(private val context: Context) {
 
     /** Sends exposure, focus, white balance, zoom, flicker and brightness to the camera. */
     private fun applyControls() {
-        if (phone != null) return
+        if (phone != null || tether != null) return
         val c = cam ?: return
         val s = st
         scope.launch(Dispatchers.IO) {
@@ -767,11 +850,13 @@ class ProCameraController(private val context: Context) {
 
     fun setIso(iso: Int) {
         if (fwd("iso", iso)) return
+        if (tether != null) { tset(tIso, iso.toLong()); set { it.copy(iso = iso, manualIso = true) }; return }
         if (gainCtl == null) { toast("This camera has no manual gain (ISO)"); return }
         set { it.copy(manualIso = true, iso = iso) }; applyControls()
     }
     fun setShutter(ns: Long) {
         if (fwd("shutterNs", ns)) return
+        if (tether != null) { tset(tShutter, ns / 100_000L); set { it.copy(shutterNs = ns, manualShutter = true) }; return }
         if (!st.manualSensor) return
         set { it.copy(manualShutter = true, shutterNs = ns) }; applyControls()
     }
@@ -821,6 +906,11 @@ class ProCameraController(private val context: Context) {
 
     fun setWhiteBalance(wb: WhiteBalance) {
         if (fwd("wb", wb.name)) return
+        if (tether != null) {
+            val code = when (wb) { WhiteBalance.AUTO -> 2L; WhiteBalance.DAYLIGHT -> 4L; WhiteBalance.FLUORESCENT -> 5L; WhiteBalance.TUNGSTEN -> 6L; else -> -1L }
+            if (code < 0 || tWb?.allowed?.let { it.isNotEmpty() && code !in it } == true) toast("Pick this white balance on the camera itself") else { tset(tWb, code); set { it.copy(whiteBalance = wb) } }
+            return
+        }
         if (wbCtl == null && wb != WhiteBalance.AUTO) { toast("This camera sets its white balance itself"); return }
         set { it.copy(whiteBalance = wb, awbLock = false) }; applyControls()
     }
@@ -840,6 +930,7 @@ class ProCameraController(private val context: Context) {
 
     fun setEv(index: Int) {
         if (fwd("ev", index)) return
+        if (tether != null) { tset(tEv, (index * st.evStep * 1000).roundToInt().toLong()); set { it.copy(ev = index) }; return }
         set { it.copy(ev = index.coerceIn(it.evMin, it.evMax)) }; applyControls() }
 
     fun setZoom(ratio: Float) {
@@ -978,6 +1069,12 @@ class ProCameraController(private val context: Context) {
         val s = st
         if (s.mode == CaptureMode.LIVE) { live.toggleLive(); return }
         if (fwd("shutter")) return
+        tether?.let { t ->
+            if (s.isVideo) { toast("Start and stop video on the camera; the clip is copied here afterwards"); return }
+            playSound(MediaActionSound.SHUTTER_CLICK); set { it.copy(shutterFlash = it.shutterFlash + 1) }
+            io.execute { if (!t.shoot()) toast("The camera didn't take the photo — check its focus and USB mode") }
+            return
+        }
         if (!s.ready || s.stitching) return
         if (!s.recording && !s.intervalRunning) rememberSetup()
         if (s.countdown > 0) { cancelCountdown(); return }

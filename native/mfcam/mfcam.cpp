@@ -733,6 +733,14 @@ JNIEXPORT void JNICALL JN(decClose)(JNIEnv* env, jclass, jlong h) {
 
 // ------------------------------------------------------------------ tethered cameras (PTP through Windows Portable Devices)
 
+// The MTP / PTP pass-through commands of Windows Portable Devices (category {4D545058-1A2E-4106-A357-771E0819FC56}).
+static const GUID MTPX = { 0x4D545058, 0x1A2E, 0x4106, { 0xA3, 0x57, 0x77, 0x1E, 0x08, 0x19, 0xFC, 0x56 } };
+static const PROPERTYKEY MTPX_NO_DATA = { MTPX, 12 }, MTPX_DATA_READ = { MTPX, 13 }, MTPX_DATA_WRITE = { MTPX, 14 },
+    MTPX_READ = { MTPX, 15 }, MTPX_WRITE = { MTPX, 16 }, MTPX_END = { MTPX, 17 },
+    MTPX_OP = { MTPX, 1001 }, MTPX_OP_PARAMS = { MTPX, 1002 }, MTPX_RESP = { MTPX, 1003 }, MTPX_RESP_PARAMS = { MTPX, 1004 },
+    MTPX_CONTEXT = { MTPX, 1006 }, MTPX_TOTAL = { MTPX, 1007 }, MTPX_TO_READ = { MTPX, 1008 }, MTPX_READ_N = { MTPX, 1009 },
+    MTPX_TO_WRITE = { MTPX, 1010 }, MTPX_DATA = { MTPX, 1012 };
+
 /** Cameras Windows sees as portable devices: "id \u0001 name \u0001 maker". */
 JNIEXPORT jobjectArray JNICALL JN(ptpList)(JNIEnv* env, jclass) {
     com();
@@ -785,9 +793,9 @@ static HRESULT cmd(IPortableDevice* d, const PROPERTYKEY& key, IPortableDeviceVa
 }
 
 static void response(IPortableDeviceValues* r, std::string& out) {
-    ULONG code = 0; r->GetUnsignedIntegerValue(WPD_PROPERTY_MTP_EXT_RESPONSE_CODE, &code);
+    ULONG code = 0; r->GetUnsignedIntegerValue(MTPX_RESP, &code);
     IPortableDevicePropVariantCollection* ps = nullptr; DWORD n = 0;
-    if (SUCCEEDED(r->GetIPortableDevicePropVariantCollectionValue(WPD_PROPERTY_MTP_EXT_RESPONSE_PARAMS, &ps)) && ps) ps->GetCount(&n);
+    if (SUCCEEDED(r->GetIPortableDevicePropVariantCollectionValue(MTPX_RESP_PARAMS, &ps)) && ps) ps->GetCount(&n);
     out.push_back((char)(code & 0xFF)); out.push_back((char)((code >> 8) & 0xFF)); out.push_back((char)n);
     for (DWORD i = 0; i < n; i++) {
         PROPVARIANT v; PropVariantInit(&v); ULONG x = 0;
@@ -814,29 +822,29 @@ JNIEXPORT jbyteArray JNICALL JN(ptpCommand)(JNIEnv* env, jclass, jlong h, jint o
         for (jsize i = 0; i < np; i++) { PROPVARIANT v; PropVariantInit(&v); v.vt = VT_UI4; v.ulVal = (ULONG)pp[i]; ps->Add(&v); }
         env->ReleaseIntArrayElements(jparams, pp, JNI_ABORT);
     }
-    in->SetUnsignedIntegerValue(WPD_PROPERTY_MTP_EXT_OPERATION_CODE, (ULONG)op);
-    in->SetIPortableDevicePropVariantCollectionValue(WPD_PROPERTY_MTP_EXT_OPERATION_PARAMS, ps);
+    in->SetUnsignedIntegerValue(MTPX_OP, (ULONG)op);
+    in->SetIPortableDevicePropVariantCollectionValue(MTPX_OP_PARAMS, ps);
     std::string out; std::string payload;
     const jsize dn = data ? env->GetArrayLength(data) : 0;
     if (!data && !read) {
-        hr = cmd(d, WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITHOUT_DATA_PHASE, in, &res);
+        hr = cmd(d, MTPX_NO_DATA, in, &res);
         if (SUCCEEDED(hr)) response(res, out);
     } else {
-        if (data) in->SetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE, (ULONGLONG)dn);
-        hr = cmd(d, data ? WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_WRITE : WPD_COMMAND_MTP_EXT_EXECUTE_COMMAND_WITH_DATA_TO_READ, in, &res);
+        if (data) in->SetUnsignedLargeIntegerValue(MTPX_TOTAL, (ULONGLONG)dn);
+        hr = cmd(d, data ? MTPX_DATA_WRITE : MTPX_DATA_READ, in, &res);
         PWSTR ctx = nullptr; ULONGLONG total = 0;
-        if (SUCCEEDED(hr)) hr = res->GetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, &ctx);
-        if (SUCCEEDED(hr) && read) res->GetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_TOTAL_DATA_SIZE, &total);
+        if (SUCCEEDED(hr)) hr = res->GetStringValue(MTPX_CONTEXT, &ctx);
+        if (SUCCEEDED(hr) && read) res->GetUnsignedLargeIntegerValue(MTPX_TOTAL, &total);
         release(res);
         if (SUCCEEDED(hr) && data) {
             jbyte* db = env->GetByteArrayElements(data, nullptr);
             IPortableDeviceValues* w = nullptr;
             if (SUCCEEDED(CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&w)))) {
-                w->SetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, ctx);
-                w->SetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_WRITE, (ULONGLONG)dn);
-                w->SetBufferValue(WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, (BYTE*)db, (DWORD)dn);
+                w->SetStringValue(MTPX_CONTEXT, ctx);
+                w->SetUnsignedLargeIntegerValue(MTPX_TO_WRITE, (ULONGLONG)dn);
+                w->SetBufferValue(MTPX_DATA, (BYTE*)db, (DWORD)dn);
                 IPortableDeviceValues* wr = nullptr;
-                hr = cmd(d, WPD_COMMAND_MTP_EXT_WRITE_DATA, w, &wr);
+                hr = cmd(d, MTPX_WRITE, w, &wr);
                 release(wr); release(w);
             }
             env->ReleaseByteArrayElements(data, db, JNI_ABORT);
@@ -848,15 +856,15 @@ JNIEXPORT jbyteArray JNICALL JN(ptpCommand)(JNIEnv* env, jclass, jlong h, jint o
                 if (FAILED(CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&rq)))) break;
                 ULONGLONG want = total == 0 ? chunk : (left < chunk ? left : chunk);
                 std::vector<BYTE> empty((size_t)want);
-                rq->SetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, ctx);
-                rq->SetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_TO_READ, want);
-                rq->SetBufferValue(WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, empty.data(), (DWORD)want);
-                hr = cmd(d, WPD_COMMAND_MTP_EXT_READ_DATA, rq, &rr);
+                rq->SetStringValue(MTPX_CONTEXT, ctx);
+                rq->SetUnsignedLargeIntegerValue(MTPX_TO_READ, want);
+                rq->SetBufferValue(MTPX_DATA, empty.data(), (DWORD)want);
+                hr = cmd(d, MTPX_READ, rq, &rr);
                 ULONGLONG got = 0;
                 if (SUCCEEDED(hr)) {
                     BYTE* b = nullptr; DWORD bl = 0;
-                    rr->GetUnsignedLargeIntegerValue(WPD_PROPERTY_MTP_EXT_TRANSFER_NUM_BYTES_READ, &got);
-                    if (SUCCEEDED(rr->GetBufferValue(WPD_PROPERTY_MTP_EXT_TRANSFER_DATA, &b, &bl)) && b) { payload.append((char*)b, (size_t)(got < bl ? got : bl)); CoTaskMemFree(b); }
+                    rr->GetUnsignedLargeIntegerValue(MTPX_READ_N, &got);
+                    if (SUCCEEDED(rr->GetBufferValue(MTPX_DATA, &b, &bl)) && b) { payload.append((char*)b, (size_t)(got < bl ? got : bl)); CoTaskMemFree(b); }
                 }
                 release(rq); release(rr);
                 if (got == 0) break;
@@ -866,8 +874,8 @@ JNIEXPORT jbyteArray JNICALL JN(ptpCommand)(JNIEnv* env, jclass, jlong h, jint o
         if (ctx) {
             IPortableDeviceValues* e = nullptr; IPortableDeviceValues* er = nullptr;
             if (SUCCEEDED(CoCreateInstance(CLSID_PortableDeviceValues, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&e)))) {
-                e->SetStringValue(WPD_PROPERTY_MTP_EXT_TRANSFER_CONTEXT, ctx);
-                HRESULT eh = cmd(d, WPD_COMMAND_MTP_EXT_END_DATA_TRANSFER, e, &er);
+                e->SetStringValue(MTPX_CONTEXT, ctx);
+                HRESULT eh = cmd(d, MTPX_END, e, &er);
                 if (SUCCEEDED(eh) && er) response(er, out); else if (SUCCEEDED(hr)) hr = eh;
                 release(er); release(e);
             }
