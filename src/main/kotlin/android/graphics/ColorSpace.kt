@@ -101,14 +101,18 @@ open class ColorSpace private constructor(val name: String, val id: Int, interna
     }
 }
 
-/** Ultra HDR gain maps: saving them comes later on Windows (exports are standard range for now). */
+/** Ultra HDR gain map: saved inside the JPEG by the app's own Ultra HDR writer. */
 class Gainmap(val gainmapContents: Bitmap) {
-    init { throw UnsupportedOperationException("Ultra HDR") }
-    fun setRatioMin(r: Float, g: Float, b: Float) {}
-    fun setRatioMax(r: Float, g: Float, b: Float) {}
-    fun setGamma(r: Float, g: Float, b: Float) {}
-    fun setEpsilonSdr(r: Float, g: Float, b: Float) {}
-    fun setEpsilonHdr(r: Float, g: Float, b: Float) {}
+    var ratioMin = 1f; private set
+    var ratioMax = 1f; private set
+    var gamma = 1f; private set
+    var epsilonSdr = 1 / 64f; private set
+    var epsilonHdr = 1 / 64f; private set
+    fun setRatioMin(r: Float, g: Float, b: Float) { ratioMin = maxOf(r, g, b) }
+    fun setRatioMax(r: Float, g: Float, b: Float) { ratioMax = maxOf(r, g, b) }
+    fun setGamma(r: Float, g: Float, b: Float) { gamma = (r + g + b) / 3f }
+    fun setEpsilonSdr(r: Float, g: Float, b: Float) { epsilonSdr = r }
+    fun setEpsilonHdr(r: Float, g: Float, b: Float) { epsilonHdr = r }
     var minDisplayRatioForHdrTransition = 1f
     var displayRatioForFullHdr = 1f
 }

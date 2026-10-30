@@ -1,0 +1,50 @@
+name: Picture encoders for Windows
+
+# Command-line encoders the photo editor uses for WebP (libwebp, BSD 3-Clause), AVIF (libavif with
+# libaom, BSD 2-Clause) and JPEG XL (libjxl, BSD 3-Clause). Published once as "encoders-win-v1".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          mkdir -p dl enc && cd dl
+          gh release view -R AOMediaCodec/libavif --json tagName,assets --jq '.tagName, .assets[].name' | tee -a ../enc/encoders-log.txt
+          gh release view -R libjxl/libjxl --json tagName,assets --jq '.tagName, .assets[].name' | tee -a ../enc/encoders-log.txt
+          gh release download -R AOMediaCodec/libavif --pattern "*indows*" --clobber || true
+          gh release download -R libjxl/libjxl --pattern "*x64-windows-static*" --clobber || gh release download -R libjxl/libjxl --pattern "*windows*" --clobber || true
+          curl -fsSL -o webp.zip https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.4.0-windows-x64.zip
+          for z in *.zip; do 7z x -y -o"x_${z%.zip}" "$z" > /dev/null; done
+          ls -R . | head -100 >> ../enc/encoders-log.txt
+          for e in cwebp.exe avifenc.exe cjxl.exe; do
+            f=$(find . -iname "$e" | head -1)
+            echo "$e <- $f" | tee -a ../enc/encoders-log.txt
+            [ -n "$f" ] && cp "$f" ../enc/ && cp "$(dirname "$f")"/*.dll ../enc/ 2>/dev/null || true
+          done
+          curl -fsSL -o ../enc/libwebp-LICENSE.txt https://raw.githubusercontent.com/webmproject/libwebp/main/COPYING
+          curl -fsSL -o ../enc/libavif-LICENSE.txt https://raw.githubusercontent.com/AOMediaCodec/libavif/main/LICENSE
+          curl -fsSL -o ../enc/libjxl-LICENSE.txt https://raw.githubusercontent.com/libjxl/libjxl/main/LICENSE
+          curl -fsSL -o ../enc/libaom-LICENSE.txt https://aomedia.googlesource.com/aom/+/refs/heads/main/LICENSE?format=TEXT && base64 -d ../enc/libaom-LICENSE.txt > ../enc/aom.txt && mv ../enc/aom.txt ../enc/libaom-LICENSE.txt || true
+          cd ../enc
+          for e in cwebp.exe avifenc.exe cjxl.exe; do [ -f $e ] && ./$e -h 2>&1 | head -3 >> encoders-log.txt || echo "MISSING $e" >> encoders-log.txt; done
+          ls -la | tee -a encoders-log.txt
+          7z a ../encoders-win.zip * > /dev/null
+      - name: Publish
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete encoders-win-v1 -y -R ${{ github.repository }} 2>/dev/null || true
+          gh release create encoders-win-v1 -R ${{ github.repository }} -t "Picture encoders for Windows" -n "cwebp (libwebp, BSD 3-Clause), avifenc (libavif BSD 2-Clause with libaom BSD 2-Clause), cjxl (libjxl, BSD 3-Clause)." encoders-win.zip enc/encoders-log.txt

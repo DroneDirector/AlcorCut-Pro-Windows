@@ -16,6 +16,8 @@ class ExifInterface private constructor(private val file: File?, bytes: ByteArra
     constructor(f: File) : this(f, null)
 
     private val tags = LinkedHashMap<String, String>()
+    /** The picture's XMP as it was read (keeps an Ultra HDR description when new XMP is written). */
+    private var origXmp: String? = null
 
     init {
         try { parse(bytes ?: file?.takeIf { it.exists() }?.readBytes() ?: ByteArray(0)) } catch (_: Throwable) {}
@@ -50,6 +52,30 @@ class ExifInterface private constructor(private val file: File?, bytes: ByteArra
     }
     fun getLatLong(out: FloatArray): Boolean { val l = latLong ?: return false; out[0] = l[0].toFloat(); out[1] = l[1].toFloat(); return true }
 
+    /** Ultra HDR: the main picture's size in the MPF index, after segments before it changed size. */
+    private fun fixMpf(b: ByteArray) {
+        var i = 2
+        while (i + 4 <= b.size && (b[i].toInt() and 0xFF) == 0xFF) {
+            val m = b[i + 1].toInt() and 0xFF
+            if (m == 0xDA || m == 0xD9) return
+            val len = ((b[i + 2].toInt() and 0xFF) shl 8) or (b[i + 3].toInt() and 0xFF)
+            if (m == 0xE2 && len >= 88 && String(b, i + 4, 3, Charsets.ISO_8859_1) == "MPF" && String(b, i + 8, 2, Charsets.ISO_8859_1) == "MM") {
+                val t = i + 8
+                val bb = java.nio.ByteBuffer.wrap(b).order(java.nio.ByteOrder.BIG_ENDIAN)
+                val count = bb.getShort(t + 8).toInt()
+                for (k in 0 until count) {
+                    val e = t + 10 + k * 12
+                    if (bb.getShort(e).toInt() and 0xFFFF == 0xB002) {
+                        val ent = t + bb.getInt(e + 8)
+                        if (ent + 32 <= b.size) { val off2 = bb.getInt(ent + 16 + 8); if (off2 > 0) bb.putInt(ent + 4, t + off2) }
+                    }
+                }
+                return
+            }
+            i += len + 2
+        }
+    }
+
     /** Writes the tags back into the JPEG file (other formats are left as they are). */
     fun saveAttributes() {
         val f = file ?: throw java.io.IOException("No file")
@@ -65,7 +91,13 @@ class ExifInterface private constructor(private val file: File?, bytes: ByteArra
         }
         val app1 = build()
         out.write(0xFF); out.write(0xE1); out.write((app1.size + 2) shr 8); out.write((app1.size + 2) and 0xFF); out.write(app1)
-        tags[TAG_XMP]?.let { xmp ->
+        tags[TAG_XMP]?.let { xmp0 ->
+            // Ultra HDR: the gain map's description must stay in the main XMP.
+            val old = origXmp
+            val xmp = if (old != null && "hdr-gain-map" in old && "hdr-gain-map" !in xmp0 && "</rdf:RDF>" in xmp0) {
+                val desc = Regex("<rdf:Description[^>]*hdr-gain-map(?:[^>]*/>|.*?</rdf:Description>)", RegexOption.DOT_MATCHES_ALL).find(old)?.value
+                if (desc != null) xmp0.replace("</rdf:RDF>", desc + "</rdf:RDF>") else xmp0
+            } else xmp0
             val body = "http://ns.adobe.com/xap/1.0/\u0000".toByteArray(Charsets.ISO_8859_1) + xmp.toByteArray(Charsets.UTF_8)
             if (body.size < 65533) { out.write(0xFF); out.write(0xE1); out.write((body.size + 2) shr 8); out.write((body.size + 2) and 0xFF); out.write(body) }
         }
@@ -78,8 +110,10 @@ class ExifInterface private constructor(private val file: File?, bytes: ByteArra
             i += len + 2
         }
         out.write(src, i, src.size - i)
+        val bytes = out.toByteArray()
+        fixMpf(bytes)
         val tmp = File(f.path + ".exif")
-        tmp.writeBytes(out.toByteArray())
+        tmp.writeBytes(bytes)
         if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
     }
 
@@ -97,7 +131,7 @@ class ExifInterface private constructor(private val file: File?, bytes: ByteArra
                 if (m == 0xE1 && len > 8) {
                     val head = String(b, i + 4, minOf(29, len - 2), Charsets.ISO_8859_1)
                     if (head.startsWith("Exif")) tiff(b, i + 10)
-                    else if (head.startsWith("http://ns.adobe.com/xap/1.0/")) tags[TAG_XMP] = String(b, i + 4 + 29, len - 2 - 29, Charsets.UTF_8)
+                    else if (head.startsWith("http://ns.adobe.com/xap/1.0/")) { tags[TAG_XMP] = String(b, i + 4 + 29, len - 2 - 29, Charsets.UTF_8); origXmp = tags[TAG_XMP] }
                 }
                 i += len + 2
             }
