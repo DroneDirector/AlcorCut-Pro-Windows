@@ -17,6 +17,18 @@ jobs:
           python-version: '3.11'
       - name: Tools
         run: pip install --quiet "tensorflow-cpu==2.15.*" "tf2onnx==1.16.1" "onnx==1.15.0" "onnxruntime==1.17.3" "numpy<2" "protobuf==3.20.3"
+      - name: Converter fix
+        # Newer TFLite files leave out "fused_activation_function" on some ops (means none).
+        run: |
+          python - <<'PY'
+          import os, re, tf2onnx
+          p = os.path.join(os.path.dirname(tf2onnx.__file__), "tflite_handlers", "tfl_math.py")
+          s = open(p).read()
+          s = re.sub(r"^([ \t]*)activation_fn = node\.attr\['fused_activation_function'\]\.s",
+                     lambda m: m.group(1) + "if 'fused_activation_function' not in node.attr:\n" + m.group(1) + "    return\n" + m.group(0), s, flags=re.M)
+          open(p, "w").write(s)
+          print("patched", s.count("not in node.attr"))
+          PY
       - name: Download
         run: |
           set -e
