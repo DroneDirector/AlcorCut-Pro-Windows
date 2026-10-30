@@ -78,7 +78,7 @@ private fun CatalogSettings(store: CatalogStore, video: Boolean, about: String) 
         val st = stats[info.id]
         Column(
             Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(10.dp))
-                .background(if (on) Pro.Amber.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.05f)).padding(10.dp),
+                .background(if (on) Pro.Amber.copy(alpha = 0.14f) else com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.05f)).padding(10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(info.name + if (on) "  ✓" else "", color = if (on) Pro.Amber else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -108,7 +108,7 @@ private fun CatalogSettings(store: CatalogStore, video: Boolean, about: String) 
             value = custom, onValueChange = { custom = it.filter(Char::isDigit).take(6) }, singleLine = true,
             label = { Text("Other number (10 or more)") }, modifier = Modifier.weight(1f),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber),
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber),
         )
         PillChip("SET", false, accentText = true) {
             custom.toIntOrNull()?.let { n -> Catalogs.setLimit(ctx, n.coerceAtLeast(Catalogs.MIN_LIMIT)); custom = Catalogs.limit.toString(); refresh++ }

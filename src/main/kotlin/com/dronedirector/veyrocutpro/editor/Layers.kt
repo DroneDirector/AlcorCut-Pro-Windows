@@ -12,7 +12,7 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 
-enum class LayerKind(val label: String) { TEXT("Text"), STICKER("Sticker"), WATERMARK("Watermark"), LOGO("Logo"), IMAGE("Image"), VIDEO("Video"), ADJUST("Adjustment"), SHAPE("Shape"), LOTTIE("Animation") }
+enum class LayerKind(val label: String) { TEXT("Text"), STICKER("Sticker"), WATERMARK("Watermark"), LOGO("Logo"), IMAGE("Image"), VIDEO("Video"), ADJUST("Adjustment"), SHAPE("Shape"), LOTTIE("Animation"), FX("Overlay") }
 
 enum class LayerFont(val label: String, val typeface: Typeface) {
     SANS("Sans", Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)),
@@ -20,6 +20,7 @@ enum class LayerFont(val label: String, val typeface: Typeface) {
     MONO("Mono", Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)),
     LIGHT("Light", Typeface.create("sans-serif-light", Typeface.NORMAL)),
     CONDENSED("Condensed", Typeface.create("sans-serif-condensed", Typeface.BOLD)),
+    HEAVY("Heavy", Typeface.create("sans-serif-black", Typeface.NORMAL)),
 }
 
 /** A layer on top of the video (or photo): text, sticker, watermark text or logo image. */
@@ -52,6 +53,12 @@ data class Layer(
     val name: String? = null,
     /** Locked on the timeline: can't be moved, trimmed, dragged or deleted. */
     val locked: Boolean = false,
+    /** Linked to the main video: moves with it when clips are trimmed or deleted (null = linked). */
+    val linked: Boolean? = null,
+    /** Group: items with the same group move together on the timeline. */
+    val group: String? = null,
+    /** Video layers: play their own sound (off by default, as before). */
+    val soundOn: Boolean? = null,
     /** Keyframes (timeline ms) for position, size and opacity; null / empty = static. */
     val keys: List<LayerKey>? = null,
     /** Blend mode for picture layers. */
@@ -94,6 +101,21 @@ data class Layer(
     val shape: Int? = null,
     val shapeAspect: Float? = null,
     val stroke: Float? = null,
+    /** Overlay layers ([FxLayers]): which one, two settings, a position and the flight track (timeline ms, lat, lon …). */
+    val fx: Int? = null,
+    val fxA: Float? = null,
+    val fxB: Float? = null,
+    val fxX: Float? = null,
+    val fxY: Float? = null,
+    /** Visualizer: colour mode, and song time minus timeline time (ms). */
+    val fxC: Float? = null,
+    val fxD: Float? = null,
+    val track: List<Double>? = null,
+    /** Text: the font from [TextFonts] (null = [font]), the effect from [TextFx], a second colour (gradients, accents) and a lower-third design ([LowerThirds]). */
+    val face: String? = null,
+    val textFx: Int? = null,
+    val textColor2: Int? = null,
+    val lowerThird: Int? = null,
 ) {
     /** The word being spoken at [ms] (−1 before the first). */
     fun wordAt(ms: Long): Int = words?.let { w -> w.indexOfLast { it <= ms } } ?: -1
@@ -104,9 +126,11 @@ data class Layer(
     val isBelow: Boolean get() = kind == LayerKind.VIDEO && below == true
     /** The name shown for this layer: your own name, else its text / kind. */
     val displayName: String get() = name?.takeIf { it.isNotBlank() }
-        ?: when (kind) { LayerKind.TEXT, LayerKind.WATERMARK, LayerKind.STICKER -> text.replace('\n', ' '); LayerKind.LOGO, LayerKind.IMAGE -> "Image"; else -> kind.label }
+        ?: when (kind) { LayerKind.TEXT, LayerKind.WATERMARK, LayerKind.STICKER -> text.replace('\n', ' '); LayerKind.LOGO, LayerKind.IMAGE -> "Image"; LayerKind.FX -> FxLayers.label(this); else -> kind.label }
     val isMedia get() = kind == LayerKind.VIDEO || kind == LayerKind.IMAGE || kind == LayerKind.LOGO || kind == LayerKind.SHAPE || kind == LayerKind.LOTTIE
     fun activeAt(ms: Long) = visible && (wholeVideo || ms in startMs..endMs)
+    /** Loudness of a video layer's own sound (full by default). */
+    fun soundVolume(): Float = 1f
 }
 
 /** In / out animations for layers (Layers → ANIMATION). */
@@ -216,6 +240,7 @@ object LayerRenderer {
             LayerKind.VIDEO, LayerKind.ADJUST -> null
             LayerKind.SHAPE -> ShapeRender.render(l, px, frameW)
             LayerKind.LOTTIE -> LottieRender.render(context, l, px, frameW, if (atMs < 0) 0 else LottieRender.frameIndex(context, l, atMs))
+            LayerKind.FX -> FxLayers.render(l, frameW, frameH, atMs, context)
             LayerKind.LOGO, LayerKind.IMAGE -> {
                 val uri = l.imageUri ?: return null
                 val src = synchronized(logoCache) {
@@ -233,17 +258,24 @@ object LayerRenderer {
     }
 
     /** [chars]: how many characters to draw (typewriter); the size and layout always follow the full text. */
+    /** The text layer's picture (for previews of styles in the editors). */
+    fun textPreview(l: Layer, px: Float, frameW: Int): Bitmap = renderText(l, px, frameW)
+
     private fun renderText(l: Layer, px: Float, frameW: Int, chars: Int = Int.MAX_VALUE, hi: Int = -1): Bitmap {
+        if (l.kind == LayerKind.TEXT && l.lowerThird != null) return LowerThirds.render(l, px, frameW)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = px
             color = l.color
-            typeface = if (l.kind == LayerKind.STICKER) Typeface.DEFAULT else l.font.typeface
+            typeface = if (l.kind == LayerKind.STICKER) Typeface.DEFAULT else (TextFonts.typeface(l.face) ?: l.font.typeface)
             if (l.shadow && l.kind != LayerKind.STICKER) setShadowLayer(px * 0.08f, 0f, px * 0.04f, 0xAA000000.toInt())
         }
         val lines = l.text.ifEmpty { " " }.split('\n')
         val fm = paint.fontMetrics
         val lineH = fm.descent - fm.ascent
-        val pad = if (l.box) px * 0.35f else px * 0.15f
+        // Outline (text layers): a stroke round the letters, [Layer.stroke] = width as a share of the text height.
+        val ow = if (l.kind == LayerKind.TEXT) (l.stroke ?: 0f) * px else 0f
+        val tfx = if (l.kind == LayerKind.TEXT) (l.textFx ?: 0) else 0
+        val pad = (if (l.box) px * 0.35f else px * 0.15f) + ow + TextFx.pad(tfx) * px
         val textW = lines.maxOf { paint.measureText(it) }
         val w = (textW + pad * 2).toInt().coerceIn(4, frameW * 2)
         val h = (lineH * lines.size + pad * 2).toInt().coerceAtLeast(4)
@@ -257,7 +289,14 @@ object LayerRenderer {
             val lw = paint.measureText(line)
             val part = if (left >= line.length) line else line.substring(0, left.coerceAtLeast(0))
             left -= line.length
-            if (part.isNotEmpty()) c.drawText(part, (w - lw) / 2f, pad - fm.ascent + i * lineH, paint)
+            if (part.isNotEmpty()) {
+                if (ow > 0f) c.drawText(part, (w - lw) / 2f, pad - fm.ascent + i * lineH, Paint(paint).apply {
+                    style = Paint.Style.STROKE; strokeWidth = ow * 2f; strokeJoin = Paint.Join.ROUND; color = l.borderColor ?: 0xFF000000.toInt()
+                })
+                if (tfx > 0) TextFx.draw(c, part, (w - lw) / 2f, pad - fm.ascent + i * lineH, Paint(paint).apply { clearShadowLayer() }, tfx, l.color,
+                    l.textColor2 ?: 0xFFFFB300.toInt(), px, pad, h - pad)
+                else c.drawText(part, (w - lw) / 2f, pad - fm.ascent + i * lineH, if (ow > 0f) Paint(paint).apply { clearShadowLayer() } else paint)
+            }
         }
         // Word-by-word captions: the word being spoken in the highlight colour (or on a box).
         if (hi >= 0 && l.words != null) {
@@ -291,6 +330,8 @@ object LayerRenderer {
 /** Draws a watermark/logo layer onto a photo (returns a new bitmap). */
 fun stampLayer(context: Context, src: Bitmap, l: Layer): Bitmap {
     if (!l.visible) return src
+    // Photo layers (pictures with a blend mode) are drawn at full size with their blend.
+    if (PhotoLayers.isPhotoLayer(l)) return PhotoLayers.composite(context, src, l)
     val mark = LayerRenderer.render(context, l, src.width, src.height) ?: return src
     val out = if (src.isMutable) src else src.copy(Bitmap.Config.ARGB_8888, true)
     val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { alpha = (l.opacity * 255).toInt().coerceIn(0, 255) }
@@ -320,6 +361,9 @@ data class MusicTrack(
     /** Track switches on the timeline: silenced, and protected from edits. */
     val muted: Boolean = false,
     val locked: Boolean = false,
+    /** Linked to the main video (null = linked) and group, as for layers. */
+    val linked: Boolean? = null,
+    val group: String? = null,
 ) {
     /** Length on a timeline of [total] ms. */
     fun playLength(total: Long): Long {

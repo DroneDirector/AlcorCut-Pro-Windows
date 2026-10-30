@@ -13,6 +13,8 @@ import javax.imageio.ImageIO
  * shared image code works on it exactly as on the phone. Java2D draws straight into the same array.
  */
 class Bitmap private constructor(private var w: Int, private var h: Int, internal var data: IntArray, val config: Config) {
+    /** Bumped whenever the pixels change, so the on-screen copy is only made again when needed. */
+    @Volatile @JvmField internal var gen = 0
     enum class Config { ARGB_8888, RGB_565, ALPHA_8, RGBA_F16, HARDWARE }
     enum class CompressFormat { JPEG, PNG, WEBP, WEBP_LOSSY, WEBP_LOSSLESS }
 
@@ -42,20 +44,22 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
     }
 
     fun getPixel(x: Int, y: Int): Int = data[y * w + x]
-    fun setPixel(x: Int, y: Int, c: Int) { data[y * w + x] = c }
+    fun setPixel(x: Int, y: Int, c: Int) { data[y * w + x] = c; gen++ }
 
     fun getPixels(out: IntArray, offset: Int, stride: Int, x: Int, y: Int, width: Int, height: Int) {
         for (r in 0 until height) System.arraycopy(data, (y + r) * w + x, out, offset + r * stride, width)
     }
 
     fun setPixels(src: IntArray, offset: Int, stride: Int, x: Int, y: Int, width: Int, height: Int) {
+        gen++
         for (r in 0 until height) System.arraycopy(src, offset + r * stride, data, (y + r) * w + x, width)
     }
 
-    fun eraseColor(c: Int) = data.fill(c)
+    fun eraseColor(c: Int) { data.fill(c); gen++ }
 
     /** Raw RGBA bytes in / out (as the phone lays them out). */
     fun copyPixelsFromBuffer(buf: java.nio.Buffer) {
+        gen++
         val b = buf as java.nio.ByteBuffer
         for (i in data.indices) {
             val r = b.get().toInt() and 0xFF; val g = b.get().toInt() and 0xFF; val bl = b.get().toInt() and 0xFF; val a = b.get().toInt() and 0xFF
@@ -68,7 +72,7 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
     }
     val rowBytes: Int get() = w * 4
     fun prepareToDraw() {}
-    fun reconfigure(width: Int, height: Int, config: Config) { this.w = width; this.h = height; if (data.size < width * height) data = IntArray(width * height) }
+    fun reconfigure(width: Int, height: Int, config: Config) { gen++; this.w = width; this.h = height; if (data.size < width * height) data = IntArray(width * height) }
 
     fun copy(config: Config, mutable: Boolean): Bitmap = Bitmap(w, h, data.copyOf(), Config.ARGB_8888).also { it.alpha = alpha; it.colorSpace = colorSpace }
 

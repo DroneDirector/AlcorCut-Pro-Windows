@@ -7,8 +7,22 @@ import org.jetbrains.skia.ImageInfo
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Shows an app picture on screen (copied into a screen image). */
+private class Shown(val gen: Int, val w: Int, val h: Int, val img: ImageBitmap)
+private val shown = java.util.WeakHashMap<android.graphics.Bitmap, Shown>()
+
+/**
+ * Shows an app picture on screen. The screen copy is kept with the picture and only made again
+ * when its pixels change, so redrawing the screen (sliders, zoom, animations) stays fast.
+ */
 fun android.graphics.Bitmap.asImageBitmap(): ImageBitmap {
+    synchronized(shown) { shown[this]?.let { s -> if (s.gen == gen && s.w == width && s.h == height) return s.img } }
+    val g = gen
+    val img = makeScreenImage()
+    synchronized(shown) { shown[this] = Shown(g, width, height, img) }
+    return img
+}
+
+private fun android.graphics.Bitmap.makeScreenImage(): ImageBitmap {
     val px = IntArray(width * height)
     getPixels(px, 0, width, 0, 0, width, height)
     val buf = ByteBuffer.allocate(px.size * 4).order(ByteOrder.LITTLE_ENDIAN)

@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Icon
 import com.dronedirector.veyrocutpro.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -61,7 +60,7 @@ fun AiBadge(title: String, count: Int, progress: Int, onStop: (() -> Unit)? = nu
                 val x = size.width * shimmer
                 drawRect(
                     androidx.compose.ui.graphics.Brush.linearGradient(
-                        listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.16f), androidx.compose.ui.graphics.Color.Transparent),
+                        listOf(androidx.compose.ui.graphics.Color.Transparent, com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.16f), androidx.compose.ui.graphics.Color.Transparent),
                         start = androidx.compose.ui.geometry.Offset(x - size.height * 2, 0f),
                         end = androidx.compose.ui.geometry.Offset(x, size.height),
                     )
@@ -77,7 +76,7 @@ fun AiBadge(title: String, count: Int, progress: Int, onStop: (() -> Unit)? = nu
                 val inset = stroke / 2 + 1f
                 val arcSize = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2)
                 val tl = androidx.compose.ui.geometry.Offset(inset, inset)
-                drawArc(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f), 0f, 360f, false, tl, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                drawArc(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.12f), 0f, 360f, false, tl, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
                 drawArc(
                     androidx.compose.ui.graphics.Brush.sweepGradient(listOf(accent.copy(alpha = 0.5f), accent, androidx.compose.ui.graphics.Color.White)),
                     -90f, 360f * sweep.coerceAtLeast(0.02f), false, tl, arcSize,
@@ -120,7 +119,7 @@ fun AiBadge(title: String, count: Int, progress: Int, onStop: (() -> Unit)? = nu
         if (onStop != null) {
             Box(
                 Modifier.padding(start = 12.dp).size(34.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.10f))
+                    .background(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.10f))
                     .clickable(onClick = onStop),
                 contentAlignment = Alignment.Center,
             ) {

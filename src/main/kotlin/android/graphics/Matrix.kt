@@ -208,6 +208,8 @@ class Rect(@JvmField var left: Int = 0, @JvmField var top: Int = 0, @JvmField va
     fun height() = bottom - top
     fun centerX() = (left + right) / 2
     fun centerY() = (top + bottom) / 2
+    fun exactCenterX() = (left + right) / 2f
+    fun exactCenterY() = (top + bottom) / 2f
     fun set(l: Int, t: Int, r: Int, b: Int) { left = l; top = t; right = r; bottom = b }
     val isEmpty: Boolean get() = left >= right || top >= bottom
     fun contains(x: Int, y: Int) = x >= left && x < right && y >= top && y < bottom

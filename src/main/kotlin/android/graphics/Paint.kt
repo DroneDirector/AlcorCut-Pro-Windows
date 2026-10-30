@@ -36,6 +36,7 @@ open class Paint(flags: Int = 0) {
     var isFakeBoldText = false
     var maskFilter: MaskFilter? = null
     var xfermode: Xfermode? = null
+    var blendMode: BlendMode? = null
     var colorFilter: ColorFilter? = null
     var shader: Shader? = null
     var typeface: Typeface? = null
@@ -43,7 +44,7 @@ open class Paint(flags: Int = 0) {
     fun set(p: Paint) {
         flags = p.flags; isDither = p.isDither; color = p.color; style = p.style; strokeWidth = p.strokeWidth
         strokeCap = p.strokeCap; strokeJoin = p.strokeJoin; textSize = p.textSize; textAlign = p.textAlign
-        maskFilter = p.maskFilter; xfermode = p.xfermode; colorFilter = p.colorFilter; shader = p.shader; typeface = p.typeface
+        maskFilter = p.maskFilter; xfermode = p.xfermode; blendMode = p.blendMode; colorFilter = p.colorFilter; shader = p.shader; typeface = p.typeface
         isFakeBoldText = p.isFakeBoldText
     }
 
@@ -101,7 +102,23 @@ class RadialGradient(val cx: Float, val cy: Float, val radius: Float, val colors
     constructor(cx: Float, cy: Float, radius: Float, c0: Int, c1: Int, tile: Shader.TileMode) : this(cx, cy, radius, intArrayOf(c0, c1), null, tile)
 }
 
-class Typeface private constructor(val family: String, val style: Int) {
+class Typeface private constructor(val family: String, val style: Int, val awt: java.awt.Font? = null, val file: java.io.File? = null) {
+    /** A bundled font file (assets/fonts/…), as on the phone. */
+    class Builder(private val assets: android.content.res.AssetManager?, private val path: String) {
+        constructor(f: java.io.File) : this(null, f.path)
+        private var weight: Int? = null
+        fun setFontVariationSettings(s: String?) = apply { weight = s?.substringAfter("'wght'", "")?.trim()?.toFloatOrNull()?.toInt() }
+        fun setWeight(w: Int) = apply { weight = w }
+        fun build(): Typeface? = try {
+            val f = if (assets == null) java.io.File(path) else {
+                val dir = java.io.File(android.content.Context.root, "fonts").apply { mkdirs() }
+                java.io.File(dir, path.replace('/', '_')).also { out -> if (!out.exists()) assets.open(path).use { i -> out.outputStream().use { i.copyTo(it) } } }
+            }
+            val font = java.awt.Font.createFont(java.awt.Font.TRUETYPE_FONT, f)
+            Typeface(font.family, if ((weight ?: 400) >= 600) BOLD else NORMAL, font, f)
+        } catch (_: Throwable) { null }
+    }
+
     companion object {
         const val NORMAL = 0; const val BOLD = 1; const val ITALIC = 2; const val BOLD_ITALIC = 3
         val DEFAULT = Typeface("SansSerif", NORMAL)

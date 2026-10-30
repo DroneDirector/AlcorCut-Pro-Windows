@@ -190,7 +190,7 @@ fun BackupSection() {
     askRestore?.let { uri ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { askRestore = null },
-            containerColor = Pro.PanelSolid,
+            containerColor = panelHere(),
             title = { com.dronedirector.veyrocutpro.ui.Text("Restore this backup?", color = androidx.compose.ui.graphics.Color.White) },
             text = { com.dronedirector.veyrocutpro.ui.Text("Your current settings, presets, LUTs, sounds and projects are replaced by the ones in the backup, then the app restarts. Photos and videos are not touched.", color = Pro.Dim) },
             confirmButton = {

@@ -41,6 +41,7 @@ copy editor/WatermarkMemory.kt
 copy editor/Rename.kt
 copy camera/CaptureExtras.kt
 copy camera/SimpleMode.kt
+copy camera/ShutterSounds.kt
 take camera/CameraModel.kt CaptureMode
 
 # AI (models run with ONNX Runtime / the phone's AI runtime layer)
@@ -70,7 +71,7 @@ copy editor/ModelStore.kt
 copy camera/CloudAi.kt
 
 # Video editor data (the video engine comes later)
-take editor/VideoProject.kt Clip DeliverSettings ExportPreset RangeCut
+take editor/VideoProject.kt Clip ClipLook DeliverSettings ExportPreset RangeCut
 take editor/Layers.kt LayerKind LayerFont Layer LayerAnim AnimFx LayerAnims LayerRenderer stampLayer MusicTrack PoolAudio
 take editor/AudioFx.kt AudioChannels AudioFx EqBand AudioPreset
 take editor/Reframe.kt Frame ClipKey Reframe Stabilize Xform KeyCurve
@@ -109,6 +110,52 @@ copy ui/UprightThumb.kt
 copy ui/KeepSettings.kt
 take ui/Monitor.kt MonitorClass monitorClass
 take ui/Scopes.kt ScopeMath
+
+# Added with the October phone features
+copy ui/ThemedIcon.kt
+copy ui/Comfort.kt
+copy ui/Gestures.kt
+copy editor/MetaEdit.kt
+copy editor/FileMenu.kt
+copy editor/Shortcuts.kt
+copy editor/PhotoLayers.kt
+copy editor/FocusMask.kt
+copy editor/LibraryTools.kt
+copy editor/Adaptive.kt
+copy editor/TextStyles.kt
+copy editor/TextStylePickers.kt
+copy editor/SmartCrop.kt
+copy editor/FaceShape.kt
+copy editor/Faces.kt
+copy editor/Wires.kt
+copy editor/Reflections.kt
+copy editor/SocialExport.kt
+copy editor/WatchFolders.kt
+copy editor/ProImport.kt
+copy editor/Tether.kt
+copy editor/NasUi.kt
+copy editor/Nas.kt
+copy editor/TeamProject.kt
+copy editor/Geotag.kt
+copy editor/Proofing.kt
+copy editor/PhotoBook.kt
+copy editor/ProjectSettings.kt
+copy editor/ExportUpload.kt
+copy editor/HueCurvesUi.kt
+copy ui/AppExit.kt
+copy ui/Help.kt
+copy ui/AppLog.kt
+copy ui/ScrollMenu.kt
+copy ui/CrashReport.kt
+copy editor/ProjectArchive.kt
+take editor/VideoEditor.kt CLIP_LABELS
+edit editor/LibraryScreen.kt LibraryScreen.py
+edit editor/Shortcuts.kt Shortcuts.py
+edit editor/TextStylePickers.kt TextStylePickers.py
+take editor/PrivacyBlur.kt BlurTrack PrivacyBlur
+take editor/Stills.kt PhotoRoundTrip
+take editor/VideoLibrary.kt LibVideo VideoLibrary
+assetdir fonts
 
 # Windows wording (tools/edits)
 edit editor/PhotoEditor.kt PhotoEditor.py

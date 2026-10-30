@@ -128,7 +128,7 @@ fun LanguagePicker() {
                 androidx.compose.material3.Text(
                     label, color = if (sel) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White, fontSize = 13.sp,
                     modifier = androidx.compose.ui.Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
-                        .background(if (sel) Pro.Amber else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f))
+                        .background(if (sel) Pro.Amber else com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.08f))
                         .clickable { I18n.set(ctx, code) }.padding(horizontal = 12.dp, vertical = 7.dp),
                 )
             }
@@ -159,8 +159,10 @@ fun Text(
     @Suppress("UNUSED_VARIABLE") val l = I18n.lang   // recompose when the language changes
     // Inside a fold-out section, control titles (white, 13–16 sp) make up the section's "what's inside" line.
     if (color == Color.White && fontSize.isSp && fontSize.value in 12.5f..16.5f) LocalFold.current?.collect(I18n.tr(text))
+    // Light look: white text becomes near-black (except in areas that stay dark).
+    val c = themedText(if (color != Color.Unspecified) color else style.color)
     androidx.compose.material3.Text(
-        text = I18n.tr(text), modifier = modifier, color = color, fontSize = fontSize, fontStyle = fontStyle, fontWeight = fontWeight,
+        text = I18n.tr(text), modifier = modifier, color = c, fontSize = fontSize, fontStyle = fontStyle, fontWeight = fontWeight,
         fontFamily = fontFamily, letterSpacing = letterSpacing, textDecoration = textDecoration, textAlign = textAlign,
         lineHeight = lineHeight, overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, style = style,
     )
@@ -186,7 +188,7 @@ fun Text(
     style: TextStyle = androidx.compose.material3.LocalTextStyle.current,
 ) {
     androidx.compose.material3.Text(
-        text = text, modifier = modifier, color = color, fontSize = fontSize, fontStyle = fontStyle, fontWeight = fontWeight,
+        text = text, modifier = modifier, color = themedText(if (color != Color.Unspecified) color else style.color), fontSize = fontSize, fontStyle = fontStyle, fontWeight = fontWeight,
         fontFamily = fontFamily, letterSpacing = letterSpacing, textDecoration = textDecoration, textAlign = textAlign,
         lineHeight = lineHeight, overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, style = style,
     )

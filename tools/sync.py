@@ -115,6 +115,17 @@ def main():
             continue
         parts = line.split()
         cmd, f = parts[0], parts[1]
+        if cmd == 'assetdir':
+            import shutil
+            d = f
+            srcd = os.path.join(sys.argv[1], 'app/src/main/assets', d)
+            dstd = os.path.join(ROOT, 'src/main/resources', d)
+            os.makedirs(dstd, exist_ok=True)
+            names = sorted(n for n in os.listdir(srcd) if os.path.isfile(os.path.join(srcd, n)))
+            for n in names:
+                shutil.copyfile(os.path.join(srcd, n), os.path.join(dstd, n))
+            open(os.path.join(dstd, 'index.txt'), 'w').write('\n'.join(names) + '\n')
+            continue
         if cmd == 'asset':
             import shutil
             dst = os.path.join(ROOT, 'src/main/resources', f)

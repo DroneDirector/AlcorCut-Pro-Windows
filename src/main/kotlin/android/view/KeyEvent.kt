@@ -49,5 +49,20 @@ class KeyEvent(val action: Int, val keyCode: Int, private val meta: Int = 0, val
         const val KEYCODE_NUMPAD_0 = 144; const val KEYCODE_NUMPAD_9 = 153
         const val KEYCODE_MEDIA_PLAY_PAUSE = 85
         const val KEYCODE_BACK = 4
+        const val KEYCODE_GRAVE = 68
+        const val KEYCODE_ALT_LEFT = 57; const val KEYCODE_ALT_RIGHT = 58
+        const val KEYCODE_SHIFT_LEFT = 59; const val KEYCODE_SHIFT_RIGHT = 60
+        const val KEYCODE_CTRL_LEFT = 113; const val KEYCODE_CTRL_RIGHT = 114
+        const val KEYCODE_CAPS_LOCK = 115; const val KEYCODE_SCROLL_LOCK = 116
+        const val KEYCODE_META_LEFT = 117; const val KEYCODE_META_RIGHT = 118
+        const val KEYCODE_FUNCTION = 119; const val KEYCODE_NUM_LOCK = 143
+
+        /** "KEYCODE_A"-style names, as on the phone. */
+        private val names: Map<Int, String> by lazy {
+            KeyEvent::class.java.declaredFields.filter { it.name.startsWith("KEYCODE_") && it.type == Int::class.javaPrimitiveType }
+                .mapNotNull { f -> try { f.isAccessible = true; f.getInt(null) to f.name } catch (_: Throwable) { null } }
+                .groupBy({ it.first }, { it.second }).mapValues { (_, v) -> v.minByOrNull { it.length }!! }
+        }
+        @JvmStatic fun keyCodeToString(code: Int): String = names[code] ?: code.toString()
     }
 }

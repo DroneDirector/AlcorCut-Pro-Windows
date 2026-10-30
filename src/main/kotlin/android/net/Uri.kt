@@ -10,6 +10,8 @@ class Uri private constructor(private val s: String) : Comparable<Uri> {
         null -> s
         else -> try { java.net.URI(s).path } catch (_: Throwable) { null }
     }
+    val encodedSchemeSpecificPart: String get() = if (scheme != null) s.substringAfter(':', "") else s
+    val schemeSpecificPart: String get() = decode(encodedSchemeSpecificPart)
     val lastPathSegment: String? get() = path?.replace('\\', '/')?.substringAfterLast('/')?.takeIf { it.isNotEmpty() }
     val authority: String? get() = try { java.net.URI(s).authority } catch (_: Throwable) { null }
     val host: String? get() = try { java.net.URI(s).host } catch (_: Throwable) { null }

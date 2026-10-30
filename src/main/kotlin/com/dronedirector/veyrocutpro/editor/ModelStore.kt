@@ -14,6 +14,7 @@ import java.net.URL
 enum class AiModel(val label: String, val files: List<String>, val sizeMb: Int) {
     DEPTH("AI depth (Depth Anything V2 Small, Apache 2.0)", listOf("depth_anything_v2_small.onnx"), 99),
     INPAINT("AI object removal (LaMa, Apache 2.0)", listOf("lama_fp32.onnx"), 208),
+    FACES("AI face recognition (SFace, Apache 2.0)", listOf("face_sface_2021dec.onnx"), 37),
     VOICE("AI voiceover (Kokoro 82M, Apache 2.0)", listOf("kokoro_v1_q8.onnx", "misaki_us_gold.json", "misaki_us_silver.json", "misaki_gb_gold.json", "misaki_gb_silver.json"), 105),
 }
 

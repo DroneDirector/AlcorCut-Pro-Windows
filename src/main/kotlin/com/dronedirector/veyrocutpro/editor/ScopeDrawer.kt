@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material3.Icon
+import com.dronedirector.veyrocutpro.ui.Icon
 import com.dronedirector.veyrocutpro.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,7 +54,7 @@ fun scopeDrawerOpen(c: Context) = prefs(c).getBoolean("scope_drawer_open", false
  * the left to pull it out, to the right to tuck it away; a tap on the tab toggles it.
  */
 @Composable
-fun ScopeDrawer(hist: Array<FloatArray>?, modifier: Modifier = Modifier, frame: android.graphics.Bitmap? = null, onOpenChange: (Boolean) -> Unit = {}) {
+fun ScopeDrawer(hist: Array<FloatArray>?, modifier: Modifier = Modifier, frame: android.graphics.Bitmap? = null, onOpenChange: (Boolean) -> Unit = {}) { com.dronedirector.veyrocutpro.ui.ForceDark {
     val context = LocalContext.current
     // 0 histogram, 1 waveform, 2 RGB parade, 3 vectorscope (needs the [frame]).
     var mode by remember { androidx.compose.runtime.mutableIntStateOf(prefs(context).getInt("scope_drawer_mode", 0)) }
@@ -139,4 +139,5 @@ fun ScopeDrawer(hist: Array<FloatArray>?, modifier: Modifier = Modifier, frame: 
             Text("Paused frame · drag to tuck away", style = Pro.Label.copy(fontSize = 8.sp), modifier = Modifier.padding(top = 3.dp))
         }
     }
+}
 }

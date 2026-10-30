@@ -14,22 +14,43 @@ import kotlin.math.min
 
 /** Ways to combine several photos into one. */
 enum class MergeKind(val label: String, val hint: String) {
-    HDR("HDR merge", "2–5 bracketed shots of the same scene (e.g. −2 / 0 / +2 EV)"),
+    HDR("HDR merge", "2–5 bracketed shots of the same scene (e.g. −2 / 0 / +2 EV) — things that moved are taken from the middle shot, so there are no ghosts"),
     PANORAMA("Panorama", "2–8 overlapping shots, picked left to right"),
     FOCUS("Focus stack", "2–8 shots focused at different distances"),
     NOISE("Noise stack", "2–8 shots of the same scene (tripod or hand-held): averaged for a clean, low-noise picture"),
     CLEAN("Remove passers-by", "3–8 shots from the same spot a few seconds apart: whatever moves through is taken out"),
     SUPERRES("Super resolution", "4–8 hand-held shots of the same scene: one picture with twice the width and height"),
     ASTRO("Star stack", "2–8 night-sky shots from a tripod: lined up on the stars and averaged for a clean, detailed sky"),
+    HDR_PANO("HDR panorama", "Bracketed shots (e.g. 3 exposures) at each position, left to right: each position is merged to HDR, then stitched"),
+    LONG_VIDEO("Long exposure from a video", "One video clip (hand-held or drone): silky water and clouds, or light trails — no ND filter needed"),
+    TRAILS("Star trails", "10–100 night-sky shots in a row from a tripod (an interval timer): each star draws its arc across the sky"),
 }
 
 /** HDR (exposure fusion), panorama stitching and focus stacking, done on the phone. */
+/** A set of photos the camera took for the photo editor to merge when it opens (focus bracketing). */
+object PendingMerge {
+    @Volatile var focus: List<android.net.Uri>? = null
+    fun take(): List<android.net.Uri>? = focus.also { focus = null }
+}
+
 object Merge {
     fun run(context: Context, kind: MergeKind, uris: List<Uri>, onProgress: (String) -> Unit): Bitmap? {
         if (uris.size < 2) return null
-        if (kind == MergeKind.PANORAMA) {
+        if (kind == MergeKind.PANORAMA || kind == MergeKind.HDR_PANO) {
             onProgress("Loading photos…")
-            val frames = uris.mapNotNull { decodeAny(context, it, 2400)?.let { b -> com.dronedirector.veyrocutpro.camera.Panorama.prepareFrame(b, 0) } }
+            val frames = if (kind == MergeKind.HDR_PANO) {
+                val groups = brackets(context, uris)
+                if (groups.size < 2) return null
+                groups.mapIndexedNotNull { i, g ->
+                    onProgress("Merging exposures ${i + 1} of ${groups.size}…")
+                    (if (g.size >= 2) run(context, MergeKind.HDR, g) {} else decodeAny(context, g[0], 2200))?.let { b ->
+                        // Smaller before stitching, so many positions fit in memory.
+                        val k = 1800f / maxOf(b.width, b.height)
+                        val sm = if (k < 1f) Bitmap.createScaledBitmap(b, (b.width * k).toInt(), (b.height * k).toInt(), true).also { if (it !== b) b.recycle() } else b
+                        com.dronedirector.veyrocutpro.camera.Panorama.prepareFrame(sm, 0)
+                    }
+                }
+            } else uris.mapNotNull { decodeAny(context, it, 2400)?.let { b -> com.dronedirector.veyrocutpro.camera.Panorama.prepareFrame(b, 0) } }
             if (frames.size < 2) return null
             onProgress("Stitching…")
             // Field of view from the first photo's lens info (35 mm equivalent), else a typical phone lens.
@@ -47,6 +68,7 @@ object Merge {
         }
         if (kind == MergeKind.NOISE || kind == MergeKind.CLEAN || kind == MergeKind.SUPERRES) return multiFrame(context, kind, uris, onProgress)
         if (kind == MergeKind.ASTRO) return astro(context, uris, onProgress)
+        if (kind == MergeKind.TRAILS) return trails(context, uris, onProgress)
         onProgress("Loading photos…")
         val maxPx = 2200
         val imgs = uris.take(if (kind == MergeKind.FOCUS) 6 else 5).mapNotNull { decodeAny(context, it, maxPx) }
@@ -59,8 +81,25 @@ object Merge {
         onProgress("Aligning…")
         val aligned = px.mapIndexed { i, p -> if (i == ref) p else shift(p, w, h, align(px[ref], p, w, h)) }
         onProgress(if (kind == MergeKind.HDR) "Merging exposures…" else "Merging sharp areas…")
-        val out = if (kind == MergeKind.HDR) fuse(aligned, w, h) else stack(aligned, w, h)
+        val out = if (kind == MergeKind.HDR) fuse(aligned, w, h, ref) else stack(aligned, w, h)
         return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    /**
+     * Splits bracketed shots into one group per position: a new group starts when the exposure
+     * compensation comes back to the first shot's value. Without exposure info, groups of 3.
+     */
+    fun brackets(context: Context, uris: List<Uri>): List<List<Uri>> {
+        val ev = uris.map { u ->
+            try {
+                context.contentResolver.openInputStream(u)?.use { androidx.exifinterface.media.ExifInterface(it).getAttributeDouble(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_BIAS_VALUE, Double.NaN) } ?: Double.NaN
+            } catch (_: Throwable) { Double.NaN }
+        }
+        val known = ev.none { it.isNaN() } && ev.distinct().size > 1
+        if (!known) return uris.chunked(if (uris.size % 3 == 0) 3 else if (uris.size % 5 == 0) 5 else if (uris.size % 2 == 0) 2 else 3)
+        val out = ArrayList<MutableList<Uri>>()
+        uris.forEachIndexed { i, u -> if (out.isEmpty() || (kotlin.math.abs(ev[i] - ev[0]) < 0.05 && out.last().isNotEmpty())) out.add(mutableListOf(u)) else out.last().add(u) }
+        return out
     }
 
     private fun luma(c: Int) = (((c shr 16) and 0xFF) * 54 + ((c shr 8) and 0xFF) * 183 + (c and 0xFF) * 19) shr 8
@@ -137,7 +176,78 @@ object Merge {
     }
 
     /** Exposure fusion: each pixel comes mostly from the shot where it is well exposed, saturated and detailed. */
-    private fun fuse(imgs: List<IntArray>, w: Int, h: Int): IntArray {
+    /**
+     * Long exposure from a video: up to 60 frames from [seconds] of the clip (0 = all of it), lined up on the
+     * first (hand-held shake) and averaged — or, for light trails, the brightest of each pixel kept.
+     */
+    fun fromVideo(context: Context, uri: Uri, seconds: Int, trails: Boolean, onProgress: (String) -> Unit): Bitmap? {
+        val mmr = android.media.MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(context, uri)
+            val dur = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: return null
+            val span = if (seconds <= 0) dur else minOf(dur, seconds * 1000L)
+            val n = (span / 100L).toInt().coerceIn(8, 60)
+            var w = 0; var h = 0
+            var acc: FloatArray? = null; var mx: IntArray? = null; var first: IntArray? = null
+            var used = 0
+            for (k in 0 until n) {
+                onProgress("Reading frame ${k + 1} of $n…")
+                val t = (span * (k + 0.5) / n).toLong() * 1000
+                var f = (if (android.os.Build.VERSION.SDK_INT >= 27) mmr.getScaledFrameAtTime(t, android.media.MediaMetadataRetriever.OPTION_CLOSEST, 2400, 2400)
+                    else mmr.getFrameAtTime(t, android.media.MediaMetadataRetriever.OPTION_CLOSEST)) ?: continue
+                if (f.config != Bitmap.Config.ARGB_8888) f = f.copy(Bitmap.Config.ARGB_8888, false)
+                if (w == 0) { w = f.width; h = f.height }
+                val b = if (f.width != w || f.height != h) Bitmap.createScaledBitmap(f, w, h, true) else f
+                val px = IntArray(w * h); b.getPixels(px, 0, w, 0, 0, w, h)
+                if (b !== f) b.recycle(); f.recycle()
+                val al = if (first == null) { first = px; px } else shift(px, w, h, align(first!!, px, w, h))
+                if (trails) {
+                    val m = mx ?: IntArray(w * h).also { mx = it }
+                    for (i in al.indices) { val c = al[i]; if (luma(c) > luma(m[i])) m[i] = c }
+                } else {
+                    val a = acc ?: FloatArray(w * h * 3).also { acc = it }
+                    for (i in al.indices) { val c = al[i]; a[i * 3] += ((c shr 16) and 255).toFloat(); a[i * 3 + 1] += ((c shr 8) and 255).toFloat(); a[i * 3 + 2] += (c and 255).toFloat() }
+                }
+                used++
+            }
+            if (used < 2) return null
+            onProgress("Blending $used frames…")
+            val out = if (trails) mx!! else { val a = acc!!; IntArray(w * h) { i -> (0xFF shl 24) or ((a[i * 3] / used).toInt().coerceIn(0, 255) shl 16) or ((a[i * 3 + 1] / used).toInt().coerceIn(0, 255) shl 8) or (a[i * 3 + 2] / used).toInt().coerceIn(0, 255) } }
+            return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
+        } finally { try { mmr.release() } catch (_: Throwable) {} }
+    }
+
+    /**
+     * Ghosts (people, branches, waves that moved between the shots): where a shot, brightened or darkened to
+     * match the reference shot, still looks different, it is left out there — that area comes from the
+     * reference shot only. Returns 0..1 per pixel for each shot (1 = moved).
+     */
+    private fun ghosts(imgs: List<IntArray>, w: Int, h: Int, ref: Int): List<FloatArray?> {
+        val r = imgs[ref]
+        return imgs.mapIndexed { k, p ->
+            if (k == ref) return@mapIndexed null
+            // How much brighter / darker this shot is (median ratio over mid-tones of both).
+            val ratios = ArrayList<Float>()
+            var i = 0
+            while (i < p.size) { val a = luma(p[i]); val b = luma(r[i]); if (a in 25..230 && b in 25..230) ratios += a.toFloat() / b; i += 7 }
+            if (ratios.size < 100) return@mapIndexed null
+            ratios.sort(); val ratio = ratios[ratios.size / 2]
+            val g = FloatArray(w * h)
+            for (j in p.indices) {
+                val a = luma(p[j]); val b = luma(r[j])
+                // Only where both are well exposed can they be compared.
+                if (a < 12 || a > 243 || b < 12 || b > 243) continue
+                val d = abs(a / ratio - b) / max(b.toFloat(), 24f)
+                g[j] = ((d - 0.18f) / 0.17f).coerceIn(0f, 1f)
+            }
+            val bl = blur(g, w, h, max(3, min(w, h) / 120))
+            for (j in bl.indices) bl[j] = (bl[j] * 2.2f).coerceIn(0f, 1f)
+            bl
+        }
+    }
+
+    private fun fuse(imgs: List<IntArray>, w: Int, h: Int, ref: Int = imgs.size / 2): IntArray {
+        val ghost = try { ghosts(imgs, w, h, ref) } catch (_: Throwable) { imgs.map { null } }
         val r = max(4, min(w, h) / 60)
         val weights = imgs.map { p ->
             val wt = FloatArray(w * h)
@@ -154,6 +264,10 @@ object Merge {
             }
             blur(wt, w, h, r)
         }
+        // Moved areas: only the reference shot counts there.
+        for (k in imgs.indices) { val g = ghost[k] ?: continue; val wt = weights[k]; for (i in wt.indices) wt[i] *= (1f - g[i]) }
+        val anyGhost = ghost.any { it != null }
+        if (anyGhost) { val wr = weights[ref]; for (i in wr.indices) { var m = 0f; for (g in ghost) if (g != null && g[i] > m) m = g[i]; wr[i] += m * 4f } }
         val out = IntArray(w * h)
         for (i in out.indices) {
             var sw = 0f; var sr = 0f; var sg = 0f; var sb = 0f
@@ -226,6 +340,35 @@ object Merge {
             MergeKind.CLEAN -> { onProgress("Taking out what moved…"); Bitmap.createBitmap(robust(frames, w, h, median = true), w, h, Bitmap.Config.ARGB_8888) }
             else -> { onProgress("Averaging…"); Bitmap.createBitmap(robust(frames, w, h, median = false), w, h, Bitmap.Config.ARGB_8888) }
         }
+    }
+
+    // ---------------- Star trails
+
+    /**
+     * Lighten blend: per pixel the brightest value over all the shots, so every star leaves the arc it moved
+     * along. Tripod shots need no lining up; one photo at a time, so a hundred shots fit in memory.
+     */
+    private fun trails(context: Context, uris: List<Uri>, onProgress: (String) -> Unit): Bitmap? {
+        val first = decodeAny(context, uris[0], 3000) ?: return null
+        val w = first.width; val h = first.height
+        val out = IntArray(w * h).also { first.getPixels(it, 0, w, 0, 0, w, h) }; first.recycle()
+        val p = IntArray(w * h)
+        var used = 1
+        for ((i, u) in uris.drop(1).withIndex()) {
+            onProgress("Adding shot ${i + 2} / ${uris.size}…")
+            val b = decodeAny(context, u, 3000) ?: continue
+            val s = if (b.width == w && b.height == h) b else Bitmap.createScaledBitmap(b, w, h, true)
+            s.getPixels(p, 0, w, 0, 0, w, h)
+            if (s !== b) s.recycle(); b.recycle()
+            for (k in out.indices) {
+                val a = out[k]; val c = p[k]
+                if (a != c) out[k] = (0xFF shl 24) or (max((a shr 16) and 0xFF, (c shr 16) and 0xFF) shl 16) or
+                    (max((a shr 8) and 0xFF, (c shr 8) and 0xFF) shl 8) or max(a and 0xFF, c and 0xFF)
+            }
+            used++
+        }
+        if (used < 2) return null
+        return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
     }
 
     // ---------------- Star stacking

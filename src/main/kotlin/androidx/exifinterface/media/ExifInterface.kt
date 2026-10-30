@@ -39,6 +39,15 @@ class ExifInterface private constructor(private val file: File?, bytes: ByteArra
         return doubleArrayOf(if (tags[TAG_GPS_LATITUDE_REF] == "S") -la else la, if (tags[TAG_GPS_LONGITUDE_REF] == "W") -lo else lo)
     }
 
+    /** Writes the GPS position (degrees, as on the phone). */
+    fun setLatLong(lat: Double, lon: Double) {
+        fun dms(v: Double): String {
+            val a = kotlin.math.abs(v); val d = a.toInt(); val mf = (a - d) * 60; val m = mf.toInt(); val sec = (mf - m) * 60
+            return "$d/1,$m/1,${Math.round(sec * 10000)}/10000"
+        }
+        tags[TAG_GPS_LATITUDE] = dms(lat); tags[TAG_GPS_LATITUDE_REF] = if (lat >= 0) "N" else "S"
+        tags[TAG_GPS_LONGITUDE] = dms(lon); tags[TAG_GPS_LONGITUDE_REF] = if (lon >= 0) "E" else "W"
+    }
     fun getLatLong(out: FloatArray): Boolean { val l = latLong ?: return false; out[0] = l[0].toFloat(); out[1] = l[1].toFloat(); return true }
 
     /** Writes the tags back into the JPEG file (other formats are left as they are). */

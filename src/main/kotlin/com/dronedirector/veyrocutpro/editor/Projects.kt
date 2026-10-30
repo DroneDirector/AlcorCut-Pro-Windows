@@ -30,6 +30,7 @@ data class VideoProjectData(
     /** Main video track switches on the timeline. */
     val videoMuted: Boolean = false,
     val videoLocked: Boolean = false,
+    val videoHidden: Boolean = false,
     /** Timeline markers (ms). */
     val markers: List<Long> = emptyList(),
     /** Notes on markers, keyed by the marker's time (ms) as text. */
@@ -61,6 +62,7 @@ data class SavedTimeline(
     val markerNotes: Map<String, String>? = null,
     val deliver: DeliverSettings = DeliverSettings(),
     val videoMuted: Boolean = false,
+    val videoHidden: Boolean = false,
 )
 
 data class PhotoProjectData(
@@ -90,6 +92,8 @@ data class PhotoProjectData(
     /** Lens Blur (depth of field from the AI depth map). */
     val lensBlur: LensBlur? = null,
     val retouch: Retouch? = null,
+    /** Title, caption, author, copyright and keywords written into exports. */
+    val meta: PhotoMetaEdit? = null,
     /** True for automatic saves (gear → AUTOSAVE); listed apart from your own projects. */
     val autosave: Boolean? = null,
 )
@@ -317,5 +321,38 @@ object AutoSave {
     fun prune(c: Context, video: Boolean) {
         val all = ProjectStore.list(c, video, autosaves = true)
         all.drop(keep(c, video)).forEach { ProjectStore.delete(c, video, it.id) }
+    }
+}
+
+/**
+ * Applies only the settings that changed between [prev] and [now] to [target], down to single values inside
+ * groups (one slider moved = only that value), so each picked photo or clip keeps the rest of its own edit.
+ * [prev] / [now] may be another type with the same field names (the photo editor's edit vs a saved photo).
+ */
+object EditDiff {
+    fun <T : Any> apply(prev: Any, now: Any, target: T, skip: Set<String> = emptySet()): T {
+        if (prev == now) return target
+        val g = ProjectStore.gson
+        val t = g.toJsonTree(target).asJsonObject
+        if (!merge(g.toJsonTree(prev).asJsonObject, g.toJsonTree(now).asJsonObject, t, skip)) return target
+        return g.fromJson(t, target.javaClass)
+    }
+
+    private fun merge(a: com.google.gson.JsonObject, b: com.google.gson.JsonObject, t: com.google.gson.JsonObject, skip: Set<String>): Boolean {
+        var changed = false
+        for (k in a.keySet() + b.keySet()) {
+            if (k in skip) continue
+            val av = a.get(k); val bv = b.get(k)
+            if (av == bv) continue
+            val tv = t.get(k)
+            if (av is com.google.gson.JsonObject && bv is com.google.gson.JsonObject && tv is com.google.gson.JsonObject) {
+                val copy = tv.deepCopy()
+                if (merge(av, bv, copy, emptySet())) { t.add(k, copy); changed = true }
+            } else {
+                if (bv == null) t.remove(k) else t.add(k, bv.deepCopy())
+                changed = true
+            }
+        }
+        return changed
     }
 }

@@ -53,7 +53,7 @@ fun LicensesDialog(onDismiss: () -> Unit) {
     var show by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Pro.PanelSolid,
+        containerColor = panelHere(),
         title = { Text(show?.substringBefore('\u0000') ?: "Open-source licences", color = Color.White) },
         text = {
             Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
@@ -67,10 +67,10 @@ fun LicensesDialog(onDismiss: () -> Unit) {
                             Text(n.url, color = Pro.Amber, fontSize = 11.sp)
                         }
                     }
-                    for ((label, file) in listOf("Apache License 2.0" to "apache-2.0.txt", "MIT License (NAFNet)" to "nafnet-mit.txt", "BSD 3-Clause (RNNoise)" to "rnnoise-bsd.txt", "MIT License (whisper.cpp)" to "whispercpp-mit.txt", "GNU LGPL 2.1 (LibRaw)" to "libraw-lgpl-2.1.txt", "LibRaw copyright notice" to "libraw-copyright.txt")) {
+                    for ((label, file) in listOf("Apache License 2.0" to "apache-2.0.txt", "MIT License (NAFNet)" to "nafnet-mit.txt", "BSD 3-Clause (RNNoise)" to "rnnoise-bsd.txt", "MIT License (whisper.cpp)" to "whispercpp-mit.txt", "GNU LGPL 2.1 (LibRaw)" to "libraw-lgpl-2.1.txt", "LibRaw copyright notice" to "libraw-copyright.txt", "Font licences" to "../fonts/FONT_LICENSES.txt")) {
                         Text(
                             "READ THE $label".uppercase(), style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
-                            modifier = Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.06f))
+                            modifier = Modifier.padding(top = 12.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(fgHere().copy(alpha = 0.06f))
                                 .clickable { show = label + "\u0000" + file }.padding(10.dp),
                         )
                     }
@@ -99,7 +99,7 @@ fun LicensesButton() {
     Text(
         "©  OPEN-SOURCE LICENCES", style = Pro.Label.copy(color = Pro.Dim, fontSize = 11.sp),
         modifier = Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = 0.04f)).clickable { open = true }.padding(12.dp),
+            .background(fgHere().copy(alpha = 0.04f)).clickable { open = true }.padding(12.dp),
     )
 }
 
@@ -112,7 +112,7 @@ fun PrivacyButton() {
     Text(
         "🔒  PRIVACY POLICY", style = Pro.Label.copy(color = Pro.Dim, fontSize = 11.sp),
         modifier = Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = 0.04f)).clickable {
+            .background(fgHere().copy(alpha = 0.04f)).clickable {
                 try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_URL))) } catch (_: Throwable) {}
             }.padding(12.dp),
     )

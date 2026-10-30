@@ -1,5 +1,11 @@
 package com.dronedirector.veyrocutpro.editor
 
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.graphics.nativeCanvas
+import com.dronedirector.veyrocutpro.ui.pinchAndMove
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Usb
+import androidx.compose.material.icons.filled.Keyboard
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
@@ -39,6 +45,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -63,7 +70,7 @@ import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import com.dronedirector.veyrocutpro.ui.Icon
 import com.dronedirector.veyrocutpro.ui.Text
 import com.dronedirector.veyrocutpro.ui.mouseActions
 import androidx.compose.runtime.Composable
@@ -103,6 +110,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.dronedirector.veyrocutpro.ui.hintedScroll
+import com.dronedirector.veyrocutpro.ui.BarIconGroup
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -127,6 +135,8 @@ private data class PhotoEdit(
     val lensBlur: LensBlur? = null,
     /** Retouch: liquify, frequency separation, relight. */
     val retouch: Retouch = Retouch(),
+    /** Title, caption, author, copyright and keywords written into exports. */
+    val meta: PhotoMetaEdit? = null,
 )
 
 /** RAW develop does exposure, white balance and the tonal ranges itself; the 8-bit grade skips them. */
@@ -139,7 +149,10 @@ private enum class PhotoPanel(val label: String) {
 }
 
 @Composable
-fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null) {
+fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null, onOpenVideo: () -> Unit = {}) {
+    androidx.compose.runtime.SideEffect { Slideshow.openVideoEditor = onOpenVideo }
+    androidx.compose.runtime.LaunchedEffect(Unit) { com.dronedirector.veyrocutpro.ui.AppLog.i("Photo editor opened") }
+    KeepScreenOnWhileEditing()
     val context = LocalContext.current
     var source by remember { mutableStateOf(initial) }
     var project by remember { mutableStateOf<PhotoProjectData?>(null) }
@@ -172,18 +185,32 @@ fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null) {
         else android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("Videos go to the video editor — the photo editor takes photos"), android.widget.Toast.LENGTH_SHORT).show()
     }
     var addFrom by remember { mutableStateOf(false) }
+    var nasOpen by remember { mutableStateOf(false) }
+    // Tethered shooting: each new shot from the camera on USB comes into the filmstrip (and opens, if wanted).
+    var tetherOpen by remember { mutableStateOf(false) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        Tether.onShot = { u ->
+            addMany(listOf(u))
+            if (Tether.openEach) { val i = PhotoSession.items.indexOfFirst { it.uri == u.toString() }; if (i >= 0) openSession(i) }
+        }
+        onDispose { Tether.onShot = null }
+    }
+    if (tetherOpen) TetherDialog { tetherOpen = false }
     if (addFrom) AddFromDialog("Add photos", listOf(
         Triple(Icons.Filled.PhotoLibrary, "Gallery") { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         Triple(Icons.Filled.FolderOpen, "Browse files") { browse.launch(arrayOf("image/*")) },
         Triple(Icons.Filled.PhotoCamera, "Camera — take a photo") { openCamera() },
+        Triple(Icons.Filled.Storage, "Network (NAS)") { nasOpen = true },
+        Triple(Icons.Filled.Usb, if (Tether.running) "Tethered camera — ${Tether.count} received" else "Tethered camera (USB)") { tetherOpen = true },
     )) { addFrom = false }
+    if (nasOpen) NasBrowserDialog(NasKinds.PHOTO_EDITOR, onDismiss = { nasOpen = false }) { addMany(it) }
     // Merge several photos (HDR, panorama, focus stack) into a new one, then edit it.
     val scope = rememberCoroutineScope()
     var mergeKind by remember { mutableStateOf<MergeKind?>(null) }
     var merging by remember { mutableStateOf<String?>(null) }
-    val mergePick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(8)) { list ->
-        val kind = mergeKind ?: return@rememberLauncherForActivityResult
-        if (list.size < 2) { if (list.isNotEmpty()) android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("Pick at least 2 photos"), android.widget.Toast.LENGTH_SHORT).show(); return@rememberLauncherForActivityResult }
+    fun mergeDone(list: List<Uri>) {
+        val kind = mergeKind ?: return
+        if (list.size < 2) { if (list.isNotEmpty()) android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("Pick at least 2 photos"), android.widget.Toast.LENGTH_SHORT).show(); return }
         merging = "Starting…"
         scope.launch {
             val uri = withContext(Dispatchers.Default) {
@@ -197,6 +224,52 @@ fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null) {
             else android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("Couldn't merge those photos"), android.widget.Toast.LENGTH_LONG).show()
         }
     }
+    val mergePick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(8)) { list -> mergeDone(list) }
+    // A focus set from the camera's focus bracketing: stack it straight away.
+    LaunchedEffect(Unit) { PendingMerge.take()?.let { set -> mergeKind = MergeKind.FOCUS; mergeDone(set) } }
+    // Long exposure from a video: the clip, then how much of it and which look.
+    var longVideo by remember { mutableStateOf<Uri?>(null) }
+    var longSec by remember { mutableStateOf(0) }
+    var longTrails by remember { mutableStateOf(false) }
+    val longPick = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u -> if (u != null) longVideo = u }
+    longVideo?.let { lv ->
+        androidx.compose.material3.AlertDialog(onDismissRequest = { longVideo = null }, containerColor = Pro.PanelSolid,
+            title = { Text("Long exposure from a video", color = Color.White) },
+            text = {
+                Column {
+                    Text("Frames from the start of the clip are lined up and blended into one photo.", color = Pro.Dim, fontSize = 12.sp)
+                    Text("How much of the clip", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                    Row(Modifier.hintedScroll(horizontal = true), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(0 to "All of it", 2 to "2 s", 4 to "4 s", 8 to "8 s", 15 to "15 s").forEach { (s, n) -> PillChip(n, longSec == s) { longSec = s } }
+                    }
+                    Text("Look", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        PillChip("Smooth (water, clouds)", !longTrails) { longTrails = false }
+                        PillChip("Light trails", longTrails) { longTrails = true }
+                    }
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = {
+                longVideo = null
+                merging = "Starting…"
+                scope.launch {
+                    val out = withContext(Dispatchers.Default) {
+                        try {
+                            val b = Merge.fromVideo(context, lv, longSec, longTrails) { msg -> scope.launch { merging = msg } } ?: return@withContext null
+                            savePhotoAs(context, b, 0, 95, null, false).also { b.recycle() }
+                        } catch (_: OutOfMemoryError) { null } catch (_: Throwable) { null }
+                    }
+                    merging = null
+                    if (out != null) { project = null; source = out }
+                    else android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("Couldn't make a long exposure from that video"), android.widget.Toast.LENGTH_LONG).show()
+                }
+            }) { Text("MAKE", color = Pro.Amber) } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { longVideo = null }) { Text("CANCEL", color = Color.White) } },
+        )
+    }
+
+    // Star trails take many shots (an interval series), more than the other merges.
+    val trailsPick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(100)) { list -> mergeDone(list) }
 
     val src = source
     var showLibrary by remember { mutableStateOf(false) }
@@ -208,6 +281,46 @@ fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null) {
         confirmButton = { androidx.compose.material3.TextButton(onClick = { PhotoSession.clear(context); confirmClear = false }) { Text("EMPTY CATALOG", color = Pro.Amber) } },
         dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmClear = false }) { Text("CANCEL", color = Color.White) } },
     )
+    merging?.let { msg ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
+            Column(Modifier.clip(RoundedCornerShape(16.dp)).background(Pro.PanelSolid).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Pro.Amber)
+                Text(msg, color = Color.White, modifier = Modifier.padding(top = 12.dp))
+            }
+        }
+    }
+    // Panorama: choose the projection and how to handle the uneven edges first.
+    var panoAsk by remember { mutableStateOf(false) }
+    if (panoAsk) {
+        var proj by remember { mutableStateOf(PanoOpts.projection) }
+        var warp by remember { mutableStateOf(PanoOpts.warp) }
+        var fill by remember { mutableStateOf(PanoOpts.fill) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { panoAsk = false }, containerColor = Pro.PanelSolid,
+            title = { Text("Panorama", color = Color.White) },
+            text = {
+                Column {
+                    Text("Projection", color = Color.White, fontSize = 13.sp)
+                    Chips(PanoOpts.PROJECTIONS, proj) { proj = it }
+                    Text(listOf("Best for wide, sweeping panoramas.", "Very wide or tall views (360° style); straight lines curve.", "Keeps straight lines straight (narrower panoramas, buildings).")[proj], color = Pro.Dim, fontSize = 11.sp)
+                    EdSlider("Boundary warp", warp, 0f..1f, 0f, ::pct) { warp = it }
+                    Text("Stretches the panorama to fill the frame instead of cropping away its uneven edges.", color = Pro.Dim, fontSize = 11.sp)
+                    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Fill edges (AI)", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        androidx.compose.material3.Switch(fill, { fill = it }, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Pro.Amber, checkedThumbColor = Color.Black))
+                    }
+                    Text("Paints in the empty corners instead of cropping them.", color = Pro.Dim, fontSize = 11.sp)
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = {
+                PanoOpts.projection = proj; PanoOpts.warp = warp; PanoOpts.fill = fill; panoAsk = false
+                mergeKind = MergeKind.PANORAMA; mergePick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }) { Text("Pick photos", color = Pro.Amber) } },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { panoAsk = false }) { Text("Cancel", color = Pro.Dim) } },
+        )
+    }
+    // Merge photos: from the start page and from the toolbar inside the editor (MERGE PHOTOS ▾).
+    val startMerge: (MergeKind) -> Unit = { k -> if (k == MergeKind.PANORAMA) panoAsk = true else if (k == MergeKind.LONG_VIDEO) { try { longPick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) } catch (_: Throwable) {} } else { mergeKind = k; (if (k == MergeKind.TRAILS || k == MergeKind.HDR_PANO) trailsPick else mergePick).launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } }
     if (src == null && showLibrary) {
         LibraryScreen(
             onBack = { showLibrary = false },
@@ -218,46 +331,8 @@ fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null) {
     }
     if (src == null) {
         BackHandler { onExit() }
-        merging?.let { msg ->
-            androidx.compose.ui.window.Dialog(onDismissRequest = {}) {
-                Column(Modifier.clip(RoundedCornerShape(16.dp)).background(Pro.PanelSolid).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Pro.Amber)
-                    Text(msg, color = Color.White, modifier = Modifier.padding(top = 12.dp))
-                }
-            }
-        }
-        // Panorama: choose the projection and how to handle the uneven edges first.
-        var panoAsk by remember { mutableStateOf(false) }
-        if (panoAsk) {
-            var proj by remember { mutableStateOf(PanoOpts.projection) }
-            var warp by remember { mutableStateOf(PanoOpts.warp) }
-            var fill by remember { mutableStateOf(PanoOpts.fill) }
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { panoAsk = false }, containerColor = Pro.PanelSolid,
-                title = { Text("Panorama", color = Color.White) },
-                text = {
-                    Column {
-                        Text("Projection", color = Color.White, fontSize = 13.sp)
-                        Chips(PanoOpts.PROJECTIONS, proj) { proj = it }
-                        Text(listOf("Best for wide, sweeping panoramas.", "Very wide or tall views (360° style); straight lines curve.", "Keeps straight lines straight (narrower panoramas, buildings).")[proj], color = Pro.Dim, fontSize = 11.sp)
-                        EdSlider("Boundary warp", warp, 0f..1f, 0f, ::pct) { warp = it }
-                        Text("Stretches the panorama to fill the frame instead of cropping away its uneven edges.", color = Pro.Dim, fontSize = 11.sp)
-                        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Fill edges (AI)", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                            androidx.compose.material3.Switch(fill, { fill = it }, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Pro.Amber, checkedThumbColor = Color.Black))
-                        }
-                        Text("Paints in the empty corners instead of cropping them.", color = Pro.Dim, fontSize = 11.sp)
-                    }
-                },
-                confirmButton = { androidx.compose.material3.TextButton(onClick = {
-                    PanoOpts.projection = proj; PanoOpts.warp = warp; PanoOpts.fill = fill; panoAsk = false
-                    mergeKind = MergeKind.PANORAMA; mergePick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) { Text("Pick photos", color = Pro.Amber) } },
-                dismissButton = { androidx.compose.material3.TextButton(onClick = { panoAsk = false }) { Text("Cancel", color = Pro.Dim) } },
-            )
-        }
         MediaChooser(
-            onMerge = { k -> if (k == MergeKind.PANORAMA) panoAsk = true else { mergeKind = k; mergePick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } },
+            onMerge = startMerge,
             title = "Photo editor",
             subtitle = "Choose a photo to edit. The original is never changed; edits are exported as a new picture.",
             videos = false,
@@ -267,6 +342,7 @@ fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null) {
             onRecent = { project = null; addMany(listOf(it)) },
             onSkip = { project = null; PhotoSession.current = -1; source = Uri.EMPTY },
             onCamera = { openCamera() },
+            onNetwork = { nasOpen = true },
             banner = {
                 Row(
                     Modifier.padding(bottom = 10.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Ed.Raised)
@@ -303,10 +379,13 @@ fun PhotoEditorScreen(onExit: () -> Unit, initial: Uri? = null) {
     } else {
         androidx.compose.runtime.key(src, project?.id) {
             PhotoWorkspace(src, project, onClose = { source = null; project = null },
+                onMerge = startMerge,
                 onOpenSession = { openSession(it) },
                 onAddGallery = { addFrom = true },
                 onAddFiles = { browse.launch(arrayOf("image/*")) },
                 onAddCamera = { openCamera() },
+                onAddNas = { nasOpen = true },
+                onPickGallery = { pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onLoad = { id ->
                 val p = ProjectStore.loadPhoto(context, id)
                 if (p != null && p.uri != Uri.EMPTY) { PhotoSession.current = -1; project = p; source = p.uri }
@@ -335,6 +414,8 @@ fun MediaChooser(
     banner: (@Composable () -> Unit)? = null,
     /** Shown only when set: take a photo with the phone's camera. */
     onCamera: (() -> Unit)? = null,
+    /** Shown only when set: files from a NAS on the network. */
+    onNetwork: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var settings by remember { mutableStateOf(false) }
@@ -342,7 +423,8 @@ fun MediaChooser(
     val recent by produceState<List<com.dronedirector.veyrocutpro.camera.MediaItem>>(emptyList()) {
         value = withContext(Dispatchers.IO) { MediaLibrary.query(context).filter { it.isVideo == videos }.take(60) }
     }
-    Column(Modifier.fillMaxSize().background(Ed.Bg).windowInsetsPadding(WindowInsets.displayCutout).padding(16.dp)) {
+    // The whole page scrolls when it's taller than the screen (the recent photos / videos are at the bottom).
+    Column(Modifier.fillMaxSize().background(Ed.Bg).windowInsetsPadding(WindowInsets.displayCutout).hintedScroll(horizontal = false).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).clip(CircleShape).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
@@ -352,11 +434,14 @@ fun MediaChooser(
         }
         Text(subtitle, color = Pro.Dim, fontSize = 13.sp, modifier = Modifier.padding(vertical = 10.dp))
         banner?.invoke()
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Recent projects right by the catalog card, so they're reached without scrolling.
+        SavedProjects(videos, onOpenProject, top = 0.dp)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 10.dp)) {
             BigButton(Icons.Filled.PhotoLibrary, if (videos) "Gallery videos" else "Gallery photos", Modifier.weight(1f), onGallery)
             BigButton(Icons.Filled.FolderOpen, "Browse files", Modifier.weight(1f), onFiles)
         }
         if (onCamera != null) BigButton(Icons.Filled.PhotoCamera, "Take a photo", Modifier.fillMaxWidth().padding(top = 10.dp), onCamera)
+        if (onNetwork != null) BigButton(Icons.Filled.Storage, "Network (NAS)", Modifier.fillMaxWidth().padding(top = 10.dp), onNetwork)
         if (onSkip != null) {
             Row(
                 Modifier
@@ -389,17 +474,16 @@ fun MediaChooser(
         if (videos) {
             Text("Browse files also opens MKV, MOV, WebM and clips from SD cards or USB drives.", color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
         }
-        SavedProjects(videos, onOpenProject)
         Text("RECENT ALCORCUT PRO ${if (videos) "VIDEOS" else "PHOTOS"}", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(top = 18.dp, bottom = 6.dp))
         if (recent.isEmpty()) {
             Text("Nothing yet.", color = Pro.Dim, fontSize = 13.sp)
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(96.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                items(recent, key = { it.uri.toString() }) { item ->
+            // A plain grid (not a lazy one) so it scrolls with the rest of the page.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val cols = ((maxWidth.value + 4f) / 100f).toInt().coerceAtLeast(1)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for (row in recent.chunked(cols)) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        for (item in row) androidx.compose.runtime.key(item.uri.toString()) { Box(Modifier.weight(1f)) {
                     val thumb by produceState<ImageBitmap?>(null, item.uri) {
                         value = withContext(Dispatchers.IO) {
                             try {
@@ -411,6 +495,9 @@ fun MediaChooser(
                     Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(Ed.Raised).clickable { onRecent(item.uri) }) {
                         thumb?.let { Image(it, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                         FormatTag(item, Modifier.align(Alignment.BottomStart).padding(4.dp))
+                    }
+                        } }
+                        repeat(cols - row.size) { Box(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -467,11 +554,11 @@ fun BigButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, o
 /** The edit a photo opens with: its saved project, or a fresh edit (with the remembered watermark). */
 private fun editOf(context: Context, initial: PhotoProjectData?, autoWatermark: Boolean = true): PhotoEdit =
     @Suppress("USELESS_ELVIS")
-    if (initial != null) PhotoEdit(initial.grade, initial.detail, initial.geometry, initial.watermark, initial.masks ?: emptyList(), initial.spots ?: emptyList(), initial.lens ?: LensFix(), initial.bg ?: PhotoBackground(), initial.baseFile, initial.texts ?: emptyList(), initial.sky ?: SkySwap(), initial.raw ?: RawDng.Dev(), initial.lensBlur, initial.retouch ?: Retouch())
+    if (initial != null) PhotoEdit(initial.grade, initial.detail, initial.geometry, initial.watermark, initial.masks ?: emptyList(), initial.spots ?: emptyList(), initial.lens ?: LensFix(), initial.bg ?: PhotoBackground(), initial.baseFile, initial.texts ?: emptyList(), initial.sky ?: SkySwap(), initial.raw ?: RawDng.Dev(), initial.lensBlur, initial.retouch ?: Retouch(), initial.meta)
     else PhotoEdit(watermark = if (autoWatermark) WatermarkMemory.load(context, false) else null)
 
 /** AI masks, sky and depth pictures an edit draws from (file → picture). */
-private fun PhotoEdit.aiFiles(): List<String> = masks.flatMap { m -> listOfNotNull(m.maskFile) + m.subs.orEmpty().mapNotNull { it.maskFile } } + listOfNotNull(bg.maskFile, sky.maskFile, sky.imagePath, lensBlur?.depthFile) + retouch.files()
+private fun PhotoEdit.aiFiles(): List<String> = masks.flatMap { m -> listOfNotNull(m.maskFile) + m.subs.orEmpty().mapNotNull { it.maskFile } } + listOfNotNull(bg.maskFile, bg.imagePath, sky.maskFile, sky.imagePath, lensBlur?.depthFile) + retouch.files()
 
 /**
  * Reads ahead the filmstrip photos next to [idx]: decodes them and renders them with their own
@@ -531,8 +618,12 @@ private fun PhotoWorkspace(
     uri: Uri, initial: PhotoProjectData?, onClose: () -> Unit, onLoad: (String) -> Unit,
     /** Opened with SKIP (no photo yet, uri = Uri.EMPTY): pick one from the gallery / files. */
     onAddGallery: () -> Unit = {}, onAddFiles: () -> Unit = {}, onAddCamera: () -> Unit = {},
+    /** File → Import → Network (NAS) and File → Import → Gallery straight away. */
+    onAddNas: () -> Unit = {}, onPickGallery: () -> Unit = {},
     /** Switch to another photo of the filmstrip (index in [PhotoSession.items]). */
     onOpenSession: (Int) -> Unit = {},
+    /** Toolbar → MERGE PHOTOS ▾. */
+    onMerge: (MergeKind) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -540,9 +631,16 @@ private fun PhotoWorkspace(
     /** Which picture [base] was loaded from (set once that photo — and its RAW data — has loaded). */
     var baseFor by remember { mutableStateOf<String?>(null) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
+    val liveSyncLock = remember { kotlinx.coroutines.sync.Mutex() }
     var edit by remember {
         // Photos taken with the editor's camera start without the remembered watermark (add one by hand if wanted).
-        mutableStateOf(editOf(context, initial, PhotoSession.items.none { it.camera == true && it.uri == uri.toString() }))
+        mutableStateOf(editOf(context, initial, PhotoSession.items.none { it.camera == true && it.uri == uri.toString() }).let { e ->
+            // A develop preset given on import: the photo starts with it the first time it's opened.
+            if (initial != null) e else try {
+                LibraryStore.load(context); UserPresets.init(context)
+                LibraryStore.get(uri.toString()).develop?.let { id -> UserPresets.list.firstOrNull { it.id == id } }?.let { p -> e.copy(grade = p.grade, detail = p.detail) } ?: e
+            } catch (_: Throwable) { e }
+        })
     }
     // A filmstrip photo's hidden edit is not a named project: SAVE makes a separate one.
     var projectId by remember { mutableStateOf(initial?.id?.takeIf { initial.session != true && initial.autosave != true }) }
@@ -552,6 +650,14 @@ private fun PhotoWorkspace(
     var showLoad by remember { mutableStateOf(false) }
     if (showLoad) LoadProjectDialog(false, onOpen = { showLoad = false; onLoad(it) }, onDismiss = { showLoad = false })
     var panel by remember { mutableStateOf(PhotoPanel.PRESETS) }
+    // Recently used tools: the sections you opened last, one tap away above the panels.
+    var recentTools by remember { mutableStateOf(RecentTools.load(context)) }
+    DisposableEffect(Unit) {
+        com.dronedirector.veyrocutpro.ui.Fold.onOpened = { key ->
+            if (key.startsWith("photo|")) recentTools = RecentTools.add(context, panel, key.removePrefix("photo|"))
+        }
+        onDispose { com.dronedirector.veyrocutpro.ui.Fold.onOpened = null }
+    }
     var comparing by remember { mutableStateOf(false) }
     // Develop tools: eyedropper (1 = white balance, 2 = Point Color), clipping warning, sharpening mask, zoom / 1:1 loupe.
     var picking by remember { mutableStateOf(0) }
@@ -633,15 +739,23 @@ private fun PhotoWorkspace(
     var liqStrength by remember { mutableStateOf(0.5f) }
     // AI masks (subject / sky) are kept as grey pictures in the app's files.
     val aiMasks = remember { mutableStateMapOf<String, Bitmap>() }
-    LaunchedEffect((edit.masks.flatMap { m -> listOfNotNull(m.maskFile) + m.subs.orEmpty().mapNotNull { it.maskFile } } + listOfNotNull(edit.bg.maskFile, edit.sky.maskFile, edit.sky.imagePath, edit.lensBlur?.depthFile) + edit.retouch.files())) {
-        for (f in (edit.masks.flatMap { m -> listOfNotNull(m.maskFile) + m.subs.orEmpty().mapNotNull { it.maskFile } } + listOfNotNull(edit.bg.maskFile, edit.sky.maskFile, edit.sky.imagePath, edit.lensBlur?.depthFile) + edit.retouch.files())) if (aiMasks[f] == null) withContext(Dispatchers.IO) { BitmapFactory.decodeFile(f) }?.let { aiMasks[f] = it }
+    LaunchedEffect((edit.masks.flatMap { m -> listOfNotNull(m.maskFile) + m.subs.orEmpty().mapNotNull { it.maskFile } } + listOfNotNull(edit.bg.maskFile, edit.bg.imagePath, edit.sky.maskFile, edit.sky.imagePath, edit.lensBlur?.depthFile) + edit.retouch.files())) {
+        for (f in (edit.masks.flatMap { m -> listOfNotNull(m.maskFile) + m.subs.orEmpty().mapNotNull { it.maskFile } } + listOfNotNull(edit.bg.maskFile, edit.bg.imagePath, edit.sky.maskFile, edit.sky.imagePath, edit.lensBlur?.depthFile) + edit.retouch.files())) if (aiMasks[f] == null) withContext(Dispatchers.IO) { BitmapFactory.decodeFile(f) }?.let { aiMasks[f] = it }
+    }
+    fun photoData(id: String, name: String): PhotoProjectData {
+        val e = edit
+        return PhotoProjectData(
+            id = id, name = name, uri = uri,
+            grade = e.grade, detail = e.detail, geometry = e.geometry, watermark = e.watermark,
+            format = format, quality = quality, sizeIdx = sizeIdx, masks = e.masks, spots = e.spots, lens = e.lens, bg = e.bg, baseFile = e.baseFile, texts = e.texts, sky = e.sky, raw = e.raw, lensBlur = e.lensBlur, retouch = e.retouch, meta = e.meta,
+        )
     }
     fun saveProject(name: String) {
         val e = edit
         val p = PhotoProjectData(
             id = projectId ?: java.util.UUID.randomUUID().toString(), name = name, uri = uri,
             grade = e.grade, detail = e.detail, geometry = e.geometry, watermark = e.watermark,
-            format = format, quality = quality, sizeIdx = sizeIdx, masks = e.masks, spots = e.spots, lens = e.lens, bg = e.bg, baseFile = e.baseFile, texts = e.texts, sky = e.sky, raw = e.raw, lensBlur = e.lensBlur, retouch = e.retouch,
+            format = format, quality = quality, sizeIdx = sizeIdx, masks = e.masks, spots = e.spots, lens = e.lens, bg = e.bg, baseFile = e.baseFile, texts = e.texts, sky = e.sky, raw = e.raw, lensBlur = e.lensBlur, retouch = e.retouch, meta = e.meta,
         )
         val thumb = preview
         scope.launch {
@@ -717,6 +831,12 @@ private fun PhotoWorkspace(
     // The photo being edited: the original, or its AI-erased copy.
     fun sourceUri(e: PhotoEdit): Uri = e.baseFile?.let { Uri.fromFile(java.io.File(it)) } ?: uri
     LaunchedEffect(ExportOpts.gamut, preview) { val pv = preview; gamutImg = if (ExportOpts.gamut != 0 && pv != null) withContext(Dispatchers.Default) { ExportOpts.gamutOverlay(pv) } else null }
+    // Colour samplers (pinned points with their values) and the focus mask (sharp areas in green).
+    var samplerMode by remember { mutableStateOf(false) }
+    var samplers by remember { mutableStateOf<List<Pair<Float, Float>>>(emptyList()) }
+    var focusMask by remember { mutableStateOf(false) }
+    var focusImg by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(focusMask, preview) { val pv = preview; focusImg = if (focusMask && pv != null) withContext(Dispatchers.Default) { try { FocusMask.overlay(pv) } catch (_: Throwable) { null } } else null }
     LaunchedEffect(clipWarn, preview) { val pv = preview; clipImg = if (clipWarn && pv != null) withContext(Dispatchers.Default) { Develop.clipOverlay(pv) } else null }
     LaunchedEffect(dustView, dustSens, preview, panel) { val pv = preview; dustImg = if (dustView && panel == PhotoPanel.HEAL && pv != null) withContext(Dispatchers.Default) { Upright.visualise(pv, dustSens) } else null }
     LaunchedEffect(ExportOpts.proof, preview, IccProof.on, IccProof.intent, IccProof.paper, IccProof.profile) {
@@ -728,6 +848,25 @@ private fun PhotoWorkspace(
     LaunchedEffect(Unit) { ExportOpts.load(context) }
     LaunchedEffect(sharpMaskView, preview, edit.detail.sharpenMasking) { val pv = preview; sharpImg = if (sharpMaskView && pv != null) withContext(Dispatchers.Default) { Develop.sharpenMaskPreview(pv, edit.detail) } else null }
     fun resetZoom() { zoomK = 1f; panX = 0f; panY = 0f }
+    /** The pinch on the photo becomes its crop: the photo is exported exactly as it was framed. */
+    fun commitFraming() {
+        val b = base
+        val vw = viewSize.width.toFloat(); val vh = viewSize.height.toFloat()
+        if (b == null || vw <= 0f || vh <= 0f || (zoomK == 1f && panX == 0f && panY == 0f)) { resetZoom(); return }
+        // The shown photo's size inside the view (fitted), to turn the move into a share of the photo.
+        val pv = preview ?: b
+        val asp = pv.width.toFloat() / pv.height
+        val dw = if (vw / vh > asp) vh * asp else vw
+        val dh = if (vw / vh > asp) vh else vw / asp
+        edit = edit.copy(geometry = ImageOps.reframe(b.width, b.height, edit.geometry, zoomK, panX / dw, panY / dh))
+        resetZoom()
+    }
+    /** Double-tap: no framing, no zoom. */
+    fun resetFraming() {
+        resetZoom()
+        val g = edit.geometry
+        if (g.zoom != 1f || g.offsetX != 0f || g.offsetY != 0f) { edit = edit.copy(geometry = g.copy(zoom = 1f, offsetX = 0f, offsetY = 0f)); message = "Whole photo again" }
+    }
     LaunchedEffect(panel, split) { if (panel == PhotoPanel.MASKS || panel == PhotoPanel.HEAL || panel == PhotoPanel.RETOUCH || split) resetZoom(); if (panel != PhotoPanel.COLOR && panel != PhotoPanel.MASKS && panel != PhotoPanel.EFFECTS) picking = 0 }
     /** A tap on the photo (box coordinates) → pixel of the shown picture, undoing padding, fit and zoom. */
     fun tapToPixel(o: androidx.compose.ui.geometry.Offset, img: Bitmap, padPx: Float): Pair<Int, Int>? {
@@ -1019,6 +1158,11 @@ private fun PhotoWorkspace(
         val b = base
         beforeImg = if (!split || b == null) null else withContext(Dispatchers.Default) { ImageOps.render(b, ProGrade(), Detail(), edit.geometry, null) }
     }
+    // Panel RESET → UNDO bar brings back the edit from just before.
+    DisposableEffect(Unit) {
+        com.dronedirector.veyrocutpro.ui.ResetUndo.capture = { val before = edit; { edit = before } }
+        onDispose { com.dronedirector.veyrocutpro.ui.ResetUndo.capture = null }
+    }
     // Undo history: record settled states.
     LaunchedEffect(edit) {
         delay(600)
@@ -1165,6 +1309,36 @@ private fun PhotoWorkspace(
             }
         }
     }
+    /** Adaptive presets: finds each selection in this photo, one after another, and adds it as a mask with its look. */
+    var adaptiveBusy by remember { mutableStateOf<String?>(null) }
+    fun runAdaptive(p: AdaptivePreset) {
+        val b = base ?: return
+        if (adaptiveBusy != null) return
+        adaptiveBusy = "${p.name}: looking at the photo…"
+        scope.launch {
+            val made = ArrayList<PhotoMask>()
+            for (st in p.steps) {
+                adaptiveBusy = "${p.name}: finding ${st.label.substringBefore(':').lowercase()}…"
+                val path = withContext(Dispatchers.Default) {
+                    try {
+                        val m = when (st.type) {
+                            MaskType.SKY -> AiSegment.sky(context, b, useCloud)
+                            MaskType.PEOPLE -> PeopleMask.make(context, b, st.parts ?: listOf(0))
+                            else -> AiSegment.subject(context, b, useCloud)
+                        }
+                        m?.let { AiSegment.saveMask(context, it) }
+                    } catch (_: Throwable) { null }
+                }
+                if (path != null) made += PhotoMask(type = st.type, maskFile = path, parts = st.parts, invert = st.invert, grade = st.grade, label = st.label)
+            }
+            adaptiveBusy = null
+            if (made.isEmpty()) message = "${p.name}: nothing to adjust was found in this photo"
+            else {
+                edit = edit.copy(masks = edit.masks + made)
+                message = "${p.name}: ${made.size} of ${p.steps.size} adjustment(s) made — fine-tune them in Masks"
+            }
+        }
+    }
     /** Retouch → Skin: a People mask (face / body skin) used only by frequency separation. */
     fun skinMask(parts: List<Int>, done: (String) -> Unit) {
         val b = base ?: return
@@ -1248,6 +1422,67 @@ private fun PhotoWorkspace(
             eraseStatus = null
             if (path == null) message = "Couldn't select that" + (Sam.failed?.let { " ($it)" } ?: "")
             else { eraseObjects = eraseObjects + path; if (eraseMask == null) eraseMask = PhotoMask(type = MaskType.BRUSH); message = "Selected — tap more things, paint, or tap REMOVE" }
+        }
+    }
+    /** AI Remove → people: selects everyone in the photo (a little wider, for a clean fill); REMOVE takes them out. */
+    fun selectPeople() {
+        val b = base ?: return
+        eraseStatus = "Finding the people…"
+        scope.launch {
+            val path = withContext(Dispatchers.Default) {
+                try {
+                    val m = PeopleMask.make(context, b, listOf(0)) ?: return@withContext null
+                    val w = m.width; val h = m.height
+                    val px = IntArray(w * h); m.getPixels(px, 0, w, 0, 0, w, h)
+                    // Grow the selection by about 1.5 % of the width so edges and shadows go too.
+                    val r = maxOf(2, w / 66)
+                    val on = BooleanArray(w * h) { ((px[it] shr 16) and 255) > 100 }
+                    val row = BooleanArray(w * h)
+                    for (y in 0 until h) { var last = -100000; for (x in 0 until w) { if (on[y * w + x]) last = x; if (x - last <= r) row[y * w + x] = true }
+                        last = 100000; for (x in w - 1 downTo 0) { if (on[y * w + x]) last = x; if (last - x <= r) row[y * w + x] = true } }
+                    val out = IntArray(w * h) { 0xFF000000.toInt() }
+                    for (x in 0 until w) { var last = -100000; for (y in 0 until h) { if (row[y * w + x]) last = y; if (y - last <= r) out[y * w + x] = -1 }
+                        last = 100000; for (y in h - 1 downTo 0) { if (row[y * w + x]) last = y; if (last - y <= r) out[y * w + x] = -1 } }
+                    AiSegment.saveMask(context, android.graphics.Bitmap.createBitmap(out, w, h, android.graphics.Bitmap.Config.ARGB_8888))
+                } catch (_: Throwable) { null }
+            }
+            eraseStatus = null
+            if (path == null) message = if (PeopleMask.lastFaces == 0) "No people found in this photo" else "Couldn't select the people"
+            else { eraseObjects = eraseObjects + path; if (eraseMask == null) eraseMask = PhotoMask(type = MaskType.BRUSH); message = "Everyone is selected (red) — tap REMOVE, or tap / paint to change it" }
+        }
+    }
+    /** AI Remove → FIND WIRES: power lines and cables found and selected (red); REMOVE takes them out. */
+    fun findWires() {
+        val b = base ?: return
+        eraseStatus = "Looking for wires and cables…"
+        scope.launch {
+            val path = withContext(Dispatchers.Default) { try { Wires.find(b)?.let { AiSegment.saveMask(context, it) } } catch (_: Throwable) { null } }
+            eraseStatus = null
+            if (path == null) message = "No wires or cables found — paint over them instead"
+            else { eraseObjects = eraseObjects + path; if (eraseMask == null) eraseMask = PhotoMask(type = MaskType.BRUSH); message = "Wires selected (red) — tap REMOVE, or paint / tap to add more" }
+        }
+    }
+    /** Remove reflections (through glass): the soft reflected layer fades; the result becomes the photo's base like AI Remove. */
+    var reflectStatus by remember { mutableStateOf<String?>(null) }
+    var reflectStrength by remember { mutableStateOf(0.4f) }
+    fun runReflections() {
+        if (busy || reflectStatus != null) return
+        val e = edit
+        reflectStatus = "Removing reflections…"
+        scope.launch {
+            val path = withContext(Dispatchers.Default) {
+                try {
+                    val full = (if (rawOn(e)) rawExport(e, 4000, sliders = false) else GradeIO.decode(context, sourceUri(e), 4800)) ?: return@withContext null
+                    val res = Reflections.remove(full, reflectStrength, { p -> reflectStatus = "Removing reflections… $p%" }) ?: return@withContext null
+                    val dir = java.io.File(context.filesDir, "erased").apply { mkdirs() }
+                    val f = java.io.File(dir, "reflect_${System.currentTimeMillis()}.jpg")
+                    f.outputStream().use { res.compress(Bitmap.CompressFormat.JPEG, 96, it) }
+                    res.recycle()
+                    f.path
+                } catch (_: OutOfMemoryError) { null } catch (_: Throwable) { null }
+            }
+            reflectStatus = null
+            if (path == null) message = "Couldn't remove the reflections" else { edit = edit.copy(baseFile = path); message = "Reflections reduced — RESET under AI REMOVE goes back to the original" }
         }
     }
     LaunchedEffect(pendingErasePick) { pendingErasePick?.let { (x, y) -> pendingErasePick = null; pickEraseObject(x, y) } }
@@ -1369,12 +1604,28 @@ private fun PhotoWorkspace(
                     "PAINT", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
                     modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { eraseMask = PhotoMask(type = MaskType.BRUSH); picking = 0 }.padding(10.dp),
                 )
+                Text(
+                    "REMOVE PEOPLE", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
+                    modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { picking = 0; selectPeople() }.padding(10.dp),
+                )
+                Text(
+                    "FIND WIRES", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
+                    modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { picking = 0; findWires() }.padding(10.dp),
+                )
             }
+            eraseStatus?.let { Text(it, color = Pro.Amber, fontSize = 11.sp) }
+            SectionTitle("REMOVE REFLECTIONS")
+            Text("For photos taken through a window or glass: the soft, reflected picture fades and the scene behind stays sharp. Stronger takes away more (and some soft detail too).", color = Pro.Dim, fontSize = 11.sp)
+            EdSlider("Strength", reflectStrength, 0f..1f, 0.4f, ::pct) { reflectStrength = it }
+            Text(reflectStatus ?: "REMOVE REFLECTIONS", style = Pro.Value.copy(color = Color.Black, fontSize = 12.sp),
+                modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(50)).background(Pro.Amber).clickable(enabled = reflectStatus == null) { runReflections() }.padding(horizontal = 16.dp, vertical = 8.dp))
             if (edit.baseFile != null) Text("The photo has removed parts. Tap RESET above to go back to the original.", color = Pro.Dim, fontSize = 11.sp)
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PillChip("TAP TO SELECT", picking == 5) { picking = if (picking == 5) 0 else 5 }
                 PillChip("PAINT", picking != 5) { picking = 0 }
+                PillChip("+ ALL PEOPLE", false, accentText = true) { picking = 0; selectPeople() }
+                PillChip("+ WIRES", false, accentText = true) { picking = 0; findWires() }
             }
             if (picking != 5) EdSlider("Brush size", tools.brushSize, 0.01f..0.3f, 0.08f, ::pct) { tools.brushSize = it }
             if (eraseObjects.isNotEmpty()) Text("${eraseObjects.size} thing(s) selected (shown in red)", style = Pro.Label)
@@ -1418,6 +1669,19 @@ private fun PhotoWorkspace(
             Text("FIND SKY AGAIN", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp), modifier = Modifier.clickable { findMask(MaskType.SKY) { p -> edit = edit.copy(sky = edit.sky.copy(maskFile = p)) } }.padding(8.dp))
         }
     }
+    // Double exposure: the second picture is copied into the app.
+    val pickSecond = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { u ->
+        if (u == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val path = withContext(Dispatchers.IO) {
+                try {
+                    val f = java.io.File(java.io.File(context.filesDir, "skies").apply { mkdirs() }, java.util.UUID.randomUUID().toString() + ".jpg")
+                    GradeIO.decode(context, u, 3000)?.let { b -> f.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 92, it) }; f.path }
+                } catch (_: Throwable) { null }
+            }
+            if (path != null) edit = edit.copy(bg = edit.bg.copy(imagePath = path, mode = 4)) else message = "Couldn't open that picture"
+        }
+    }
     val backgroundSection: @Composable () -> Unit = {
         val bg = edit.bg
         SectionTitle("BACKGROUND (AI)") { edit = edit.copy(bg = PhotoBackground()) }
@@ -1428,10 +1692,22 @@ private fun PhotoWorkspace(
                 modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { findMask(MaskType.SUBJECT) { p -> edit = edit.copy(bg = edit.bg.copy(maskFile = p, mode = 1)) } }.padding(10.dp),
             )
         } else {
-            Chips(listOf("Off", "Blur (portrait)", "Remove", "Colour"), bg.mode) { m -> edit = edit.copy(bg = bg.copy(mode = m)) }
+            Chips(listOf("Off", "Blur (portrait)", "Remove", "Colour", "Double exposure", "Pop out"), bg.mode) { m ->
+                if (m == 4 && bg.imagePath == null) pickSecond.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                else edit = edit.copy(bg = bg.copy(mode = m))
+            }
+            if (bg.mode == 4) {
+                EdSlider("Blend", bg.amount, 0f..1f, 0.85f, ::pct) { v -> edit = edit.copy(bg = bg.copy(amount = v)) }
+                Text("CHOOSE ANOTHER PICTURE", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp), modifier = Modifier.clickable { pickSecond.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }.padding(8.dp))
+                Text("The second picture (a forest, a city, the sea…) shows inside the subject; the background takes the colour below. Works best with a portrait or a clear silhouette.", color = Pro.Dim, fontSize = 11.sp)
+            }
             if (bg.mode == 1) EdSlider("Blur", bg.blur, 0.05f..1f, 0.5f, ::pct) { v -> edit = edit.copy(bg = bg.copy(blur = v)) }
             if (bg.mode == 2) Text("Exported as PNG (or WebP) with a transparent background.", color = Pro.Dim, fontSize = 11.sp)
-            if (bg.mode == 3) Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            if (bg.mode == 5) {
+                EdSlider("Glow", bg.blur, 0.05f..1f, 0.5f, ::pct) { v -> edit = edit.copy(bg = bg.copy(blur = v)) }
+                Text("The background goes darker and softer and the subject gets a glow in the colour below — the look of a video thumbnail.", color = Pro.Dim, fontSize = 11.sp)
+            }
+            if (bg.mode == 3 || bg.mode == 4 || bg.mode == 5) Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf(0xFFFFFFFF, 0xFF000000, 0xFF1E1E1E, 0xFFF2E8DA, 0xFF2D6CDF, 0xFF34C759, 0xFFFF7EB6, 0xFFFFB300).map { it.toInt() }.forEach { c ->
                     Box(Modifier.size(28.dp).clip(CircleShape).background(Color(c)).border(if (c == bg.color) 3.dp else 1.dp, if (c == bg.color) Pro.Amber else Pro.Line, CircleShape)
                         .clickable { edit = edit.copy(bg = bg.copy(color = c)) })
@@ -1443,11 +1719,14 @@ private fun PhotoWorkspace(
 
     /** Heal: tap a spot; the patch source is picked automatically. */
     var cloneMode by remember { mutableStateOf(false) }
+    /** Heal panel: 0 heal / clone, 1 red eye, 2 pet eye. */
+    var eyeMode by remember { mutableStateOf(0) }
     var cloneSrc by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var cloneOff by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     fun addSpot(x: Float, y: Float) {
         val b = base ?: return
         val r = tools.healSize
+        if (eyeMode > 0) { edit = edit.copy(spots = edit.spots + Spot(x, y, r, 0f, 0f, eye = eyeMode)); return }
         // Clone stamp: first tap picks the source, then each tap paints a copy from the same offset.
         if (cloneMode) {
             val src = cloneSrc
@@ -1537,6 +1816,47 @@ private fun PhotoWorkspace(
             com.dronedirector.veyrocutpro.ExportService.end(context, "photo-sync")
         }
     }
+    /** Select multiple in the filmstrip: whatever changes on the open photo changes the same way on every picked photo. */
+    fun followTo(list: List<Int>, prev: PhotoEdit, now: PhotoEdit) {
+        val targets = list.filter { it != sessionIdx }
+        if (targets.isEmpty()) return
+        scope.launch {
+            liveSyncLock.lock()
+            try {
+                for (i in targets) withContext(Dispatchers.IO) {
+                    try {
+                        val p = sessionProject(i) ?: return@withContext
+                        // Every change follows; the photo's own AI-erased copy and AI-made masks stay its own.
+                        var q = EditDiff.apply(prev, now, p, setOf("baseFile", "id", "name", "uri", "savedAt", "session", "autosave")).copy(session = true)
+                        if (q.masks != p.masks) q = q.copy(masks = q.masks.filter { it.maskFile == null } + p.masks.filter { it.maskFile != null })
+                        if (q == p) return@withContext
+                        val small = GradeIO.decode(context, q.uri, 320)
+                        val thumb = small?.let { b ->
+                            val tables = if (q.grade.isIdentity) null else q.grade.tables()
+                            ImageOps.renderPhoto(b, q.grade, q.detail.copy(aiDenoise = 0f), q.geometry, tables, q.lens, null, null).also { if (it !== b) b.recycle() }
+                        }
+                        val saved = ProjectStore.savePhoto(context, q, thumb)
+                        withContext(Dispatchers.Main) { PhotoSession.update(context, i) { it.copy(projectId = saved.id, edited = true, version = System.currentTimeMillis()) } }
+                    } catch (_: Throwable) {}
+                }
+            } finally { liveSyncLock.unlock() }
+        }
+    }
+    // The open photo's edit when last passed on (and which photo it was: switching photos is not a change).
+    var followBase by remember { mutableStateOf<Pair<Int, PhotoEdit>?>(null) }
+    LaunchedEffect(edit, PhotoSession.selecting, sessionIdx) {
+        val others = PhotoSession.picked.count { k -> PhotoSession.items.getOrNull(sessionIdx)?.key != k }
+        val fb = followBase
+        val base = fb?.second
+        if (!PhotoSession.selecting || others == 0 || base == null || fb.first != sessionIdx || sessionIdx < 0 ||
+            base == edit) {
+            followBase = sessionIdx to edit; return@LaunchedEffect
+        }
+        delay(600)
+        val now = edit
+        followBase = sessionIdx to now
+        followTo(PhotoSession.picked.map { k -> PhotoSession.items.indexOfFirst { it.key == k } }.filter { it >= 0 }, base, now)
+    }
     /** Exports the selected filmstrip photos, each with its own edit, using the export settings here. */
     fun exportSession(list: List<Int>) {
         if (busy || PhotoExportJob.active || list.isEmpty()) return
@@ -1561,7 +1881,7 @@ private fun PhotoWorkspace(
                         val full = developed ?: GradeIO.decode(context, u, sizes[sizeIdx]) ?: return@withContext false
                         val eg = if (developed != null) p.grade.rawRest() else p.grade
                         val tables = if (eg.isIdentity) null else eg.tables()
-                        var out = ImageOps.renderPhoto(full, eg, p.detail.copy(aiDenoise = 0f), p.geometry, tables, p.lens, p.spots, p.masks.filter { it.maskFile == null }, retouch = p.retouch?.let { Retouch(liquify = it.liquify, fsSmooth = if (it.fsArea == 0) it.fsSmooth else 0f, fsTexture = if (it.fsArea == 0) it.fsTexture else 1f, fsRadius = it.fsRadius) })
+                        var out = ImageOps.renderPhoto(full, eg, p.detail.copy(aiDenoise = 0f), p.geometry, tables, p.lens, p.spots, p.masks.filter { it.maskFile == null }, retouch = p.retouch?.let { it.copy(fsSmooth = if (it.fsArea == 0) it.fsSmooth else 0f, fsTexture = if (it.fsArea == 0) it.fsTexture else 1f, fsArea = 0, fsMaskFile = null, light = 0f, shadow = 0f, depthFile = null) })
                         if (out !== full) full.recycle()
                         p.watermark?.let { out = stampLayer(context, out, it) }
                         savePhotoAs(context, out, format, (quality * 100).toInt(), if (keepExif) p.uri else null, stripGps) != null
@@ -1593,7 +1913,7 @@ private fun PhotoWorkspace(
         BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout)) {
             val wide = maxWidth > maxHeight || maxWidth >= 720.dp
             val boxW = maxWidth.value; val boxH = maxHeight.value
-            val previewBox = @Composable { mod: Modifier ->
+            val previewBoxInner = @Composable { mod: Modifier ->
                 Box(
                     // Mouse: wheel = next / previous filmstrip photo, right-click = before / after split, double-click = hide / show the tools.
                     // clipToBounds: a zoomed-in photo stays inside the viewer (never over the top bar or the corners).
@@ -1613,19 +1933,35 @@ private fun PhotoWorkspace(
                         onRightClick = { split = !split },
                         onDoubleClick = { com.dronedirector.veyrocutpro.ui.Panels.set(context, "pe.controls", !showControls) },
                     ).pointerInput(split, panel, picking, retouchTab) {
-                        // Pinch to zoom in (1:1 loupe), drag to look around while zoomed. Off in Masks / Heal and the split view.
-                        if (!split && picking == 0 && panel != PhotoPanel.MASKS && panel != PhotoPanel.HEAL && !(panel == PhotoPanel.RETOUCH && retouchTab == 0)) detectTransformGestures { c, pan, z, _ ->
-                            val nz = (zoomK * z).coerceIn(1f, 8f)
-                            if (nz != zoomK || zoomK > 1f) {
+                        // Pinch / move the photo. Normal panels: framing — when the fingers lift, the crop
+                        // becomes what you see (exported as seen); one finger moves a framed photo. Painting
+                        // panels (Masks, Heal, Retouch brush) and the split view: two fingers zoom the view
+                        // only, so you can paint details; one finger stays the brush.
+                        val painting = split || picking != 0 || panel == PhotoPanel.MASKS || panel == PhotoPanel.HEAL || (panel == PhotoPanel.RETOUCH && retouchTab == 0)
+                        pinchAndMove(
+                            minPointers = { if (!painting && (edit.geometry.zoom > 1.001f || zoomK > 1f)) 1 else 2 },
+                            onGesture = { c, pan, z ->
+                                val nz = (zoomK * z).coerceIn(if (painting) 1f else 1f / edit.geometry.zoom, 8f)
                                 val bw = viewSize.width.toFloat(); val bh = viewSize.height.toFloat()
-                                panX = ((panX + pan.x) - (c.x - bw / 2f - panX) * (nz / zoomK - 1f)).coerceIn(-bw * (nz - 1f) / 2f, bw * (nz - 1f) / 2f)
-                                panY = ((panY + pan.y) - (c.y - bh / 2f - panY) * (nz / zoomK - 1f)).coerceIn(-bh * (nz - 1f) / 2f, bh * (nz - 1f) / 2f)
+                                val lim = maxOf(nz - 1f, 0f) / 2f
+                                panX = ((panX + pan.x) - (c.x - bw / 2f - panX) * (nz / zoomK - 1f)).coerceIn(-bw * lim, bw * lim)
+                                panY = ((panY + pan.y) - (c.y - bh / 2f - panY) * (nz / zoomK - 1f)).coerceIn(-bh * lim, bh * lim)
                                 zoomK = nz
-                                if (zoomK <= 1.001f) resetZoom()
-                            }
-                        }
-                    }.pointerInput(split, panel, picking, retouchTab) {
-                        if (split) {
+                                if (painting && zoomK <= 1.001f) resetZoom()
+                            },
+                            onEnd = { if (!painting) commitFraming() },
+                        )
+                    }.pointerInput(split, panel, picking, retouchTab, samplerMode) {
+                        if (samplerMode && !split) {
+                            // Colour samplers: each tap pins a point (up to 4); tap near one to remove it.
+                            detectTapGestures(onTap = { o ->
+                                val img = preview ?: return@detectTapGestures
+                                val (px, py) = tapToPixel(o, img, 6.dp.toPx()) ?: return@detectTapGestures
+                                val nx = px.toFloat() / img.width; val ny = py.toFloat() / img.height
+                                val near = samplers.indexOfFirst { kotlin.math.hypot((it.first - nx).toDouble(), (it.second - ny).toDouble()) < 0.03 }
+                                samplers = if (near >= 0) samplers.filterIndexed { i, _ -> i != near } else (samplers + (nx to ny)).takeLast(4)
+                            })
+                        } else if (split) {
                             // Drag anywhere to move the before / after divider.
                             detectHorizontalDragGestures { ch, _ -> splitX = (ch.position.x / size.width).coerceIn(0.02f, 0.98f) }
                         } else if (picking == 6 || picking == 7) {
@@ -1640,14 +1976,26 @@ private fun PhotoWorkspace(
                         } else if (panel != PhotoPanel.MASKS && panel != PhotoPanel.HEAL && !(panel == PhotoPanel.RETOUCH && retouchTab == 0)) {
                             detectTapGestures(
                                 onPress = { if (zoomK <= 1f) { comparing = true; tryAwaitRelease(); comparing = false } },
-                                // Double-tap: 1:1 loupe at that spot, again to fit.
-                                onDoubleTap = { o ->
-                                    if (zoomK > 1f) resetZoom() else {
-                                        val bw = viewSize.width.toFloat(); val bh = viewSize.height.toFloat(); val z = 3f
-                                        zoomK = z; panX = (-(o.x - bw / 2f) * (z - 1f)).coerceIn(-bw, bw); panY = (-(o.y - bh / 2f) * (z - 1f)).coerceIn(-bh, bh)
+                                // Double-tap: the whole photo again (framing and zoom reset).
+                                onDoubleTap = { resetFraming() },
+                            )
+                        }
+                    }.pointerInput(split, panel, picking, retouchTab, samplerMode) {
+                        // Swipe left / right on the whole (not zoomed) photo: next / previous in the filmstrip.
+                        // The edit is kept in the catalog first.
+                        val painting = split || picking != 0 || samplerMode || panel == PhotoPanel.MASKS || panel == PhotoPanel.HEAL || (panel == PhotoPanel.RETOUCH && retouchTab == 0)
+                        if (!painting) {
+                            var dx = 0f
+                            detectHorizontalDragGestures(
+                                onDragStart = { dx = 0f },
+                                onDragEnd = {
+                                    val n = PhotoSession.items.size
+                                    if (sessionIdx >= 0 && n > 1 && kotlin.math.abs(dx) > size.width * 0.22f) {
+                                        val to = (sessionIdx + if (dx < 0) 1 else -1).coerceIn(0, n - 1)
+                                        if (to != sessionIdx) switchTo(to)
                                     }
                                 },
-                            )
+                            ) { ch, d -> if (zoomK <= 1.001f && edit.geometry.zoom <= 1.001f) { dx += d; ch.consume() } }
                         }
                     },
                     contentAlignment = Alignment.Center,
@@ -1665,10 +2013,17 @@ private fun PhotoWorkspace(
                         ) {
                             Text("No photo yet", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                             Text("Add a photo to start editing.", color = Pro.Dim, fontSize = 12.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("Add photos", color = Color.Black, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(50)).background(Pro.Amber).clickable(onClick = onAddGallery).padding(horizontal = 18.dp, vertical = 10.dp))
-                                Text("Browse files", color = Pro.Amber, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, Pro.Amber, RoundedCornerShape(50)).clickable(onClick = onAddFiles).padding(horizontal = 18.dp, vertical = 10.dp))
-                                Text("Camera", color = Pro.Amber, fontWeight = FontWeight.SemiBold, modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, Pro.Amber, RoundedCornerShape(50)).clickable(onClick = onAddCamera).padding(horizontal = 18.dp, vertical = 10.dp))
+                            // The buttons never break inside a word: they move to a second line when the
+                            // space is narrow, and keep clear of the histogram handle at the right edge.
+                            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                            androidx.compose.foundation.layout.FlowRow(
+                                Modifier.padding(start = 8.dp, end = 44.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                EmptyAddButton(Icons.Filled.PhotoLibrary, "Add photos", filled = true, onClick = onAddGallery)
+                                EmptyAddButton(Icons.Filled.FolderOpen, "Browse files", onClick = onAddFiles)
+                                EmptyAddButton(Icons.Filled.PhotoCamera, "Camera", onClick = onAddCamera)
                             }
                         }
                         RefView.shown && refImg != null && shown != null -> {
@@ -1700,6 +2055,15 @@ private fun PhotoWorkspace(
                         }
                         shown != null || ph != null -> Box(
                             Modifier.fillMaxSize().padding(6.dp).onSizeChanged { viewSize = it }
+                                // The photo's frame: when zoomed or moved, nothing shows outside it.
+                                .drawWithContent {
+                                    val pic = shown ?: ph
+                                    if (pic == null || (zoomK == 1f && panX == 0f && panY == 0f)) { drawContent(); return@drawWithContent }
+                                    val asp = pic.width.toFloat() / pic.height
+                                    val dw = if (size.width / size.height > asp) size.height * asp else size.width
+                                    val dh = if (size.width / size.height > asp) size.height else size.width / asp
+                                    clipRect((size.width - dw) / 2f, (size.height - dh) / 2f, (size.width + dw) / 2f, (size.height + dh) / 2f) { this@drawWithContent.drawContent() }
+                                }
                                 .graphicsLayer(scaleX = zoomK, scaleY = zoomK, translationX = panX, translationY = panY),
                         ) {
                             if (ph != null) Image(ph.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
@@ -1710,6 +2074,23 @@ private fun PhotoWorkspace(
                             if (shown != null && !comparing) {
                                 sharpImg?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
                                 clipImg?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
+                                focusImg?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
+                                if (samplers.isNotEmpty()) {
+                                    val pic = shown
+                                    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                                        val asp = pic.width.toFloat() / pic.height
+                                        val dw = if (size.width / size.height > asp) size.height * asp else size.width
+                                        val dh = if (size.width / size.height > asp) size.height else size.width / asp
+                                        val ox = (size.width - dw) / 2f; val oy = (size.height - dh) / 2f
+                                        samplers.forEachIndexed { i, (nx, ny) ->
+                                            val c = androidx.compose.ui.geometry.Offset(ox + nx * dw, oy + ny * dh)
+                                            drawCircle(Color.Black, 9.dp.toPx() / zoomK, c, style = androidx.compose.ui.graphics.drawscope.Stroke(4.dp.toPx() / zoomK))
+                                            drawCircle(Pro.Amber, 9.dp.toPx() / zoomK, c, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx() / zoomK))
+                                            drawContext.canvas.nativeCanvas.drawText("${i + 1}", c.x + 11.dp.toPx() / zoomK, c.y - 8.dp.toPx() / zoomK,
+                                                android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFB300.toInt(); textSize = 13.dp.toPx() / zoomK; setShadowLayer(3f, 0f, 0f, 0xFF000000.toInt()) })
+                                        }
+                                    }
+                                }
                                 gamutImg?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
                                 if (panel == PhotoPanel.HEAL) eraseTint?.let { Image(it.asImageBitmap(), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()) }
                             }
@@ -1747,6 +2128,18 @@ private fun PhotoWorkspace(
                         style = Pro.Label.copy(color = Color.Black),
                         modifier = Modifier.align(Alignment.TopCenter).padding(top = 34.dp).clip(RoundedCornerShape(50)).background(Pro.Amber).clickable { picking = 0 }.padding(horizontal = 10.dp, vertical = 5.dp),
                     )
+                    // Colour sampler read-outs (0–255 of the edited picture, and brightness in %).
+                    val spv = preview
+                    if (samplers.isNotEmpty() && spv != null) Column(
+                        Modifier.align(Alignment.BottomStart).padding(10.dp).clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 8.dp, vertical = 5.dp),
+                    ) {
+                        samplers.forEachIndexed { i, (nx, ny) ->
+                            val v = Develop.sample(spv, (nx * spv.width).toInt(), (ny * spv.height).toInt(), (spv.width / 400).coerceAtLeast(1))
+                            val l = ((0.2126f * v[0] + 0.7152f * v[1] + 0.0722f * v[2]) / 2.55f).toInt()
+                            Text("${i + 1}  R ${v[0].toInt()}  G ${v[1].toInt()}  B ${v[2].toInt()}  ·  $l%", style = Pro.Value.copy(color = Color.White, fontSize = 11.sp))
+                        }
+                        if (samplerMode) Text("CLEAR", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp), modifier = Modifier.clickable { samplers = emptyList() }.padding(top = 3.dp))
+                    }
                     if (rawOn(edit)) Text(
                         "RAW", style = Pro.Label.copy(color = Color.Black),
                         modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).clip(RoundedCornerShape(50)).background(Pro.Amber).padding(horizontal = 8.dp, vertical = 3.dp),
@@ -1769,6 +2162,27 @@ private fun PhotoWorkspace(
                             if (comparing) "BEFORE" else "HOLD FOR BEFORE",
                             style = Pro.Label.copy(color = Color.White),
                             modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.5f)).padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                        Text(
+                            if (focusMask) "FOCUS ✓" else "FOCUS",
+                            style = Pro.Label.copy(color = if (focusMask) Color.Black else Color.White),
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(if (focusMask) Pro.Amber else Color.Black.copy(alpha = 0.5f)).clickable { focusMask = !focusMask; message = if (focusMask) "Focus mask: the sharp areas show in green" else null }.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                        Text(
+                            if (samplerMode) "SAMPLERS ✓" else "SAMPLERS",
+                            style = Pro.Label.copy(color = if (samplerMode) Color.Black else Color.White),
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(if (samplerMode) Pro.Amber else Color.Black.copy(alpha = 0.5f))
+                                .clickable { samplerMode = !samplerMode; if (samplerMode) message = "Tap the photo to pin up to 4 colour samplers; tap one again to remove it" }.padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                        // Filmstrip: jump to the next photo you haven't edited yet.
+                        if (sessionIdx >= 0 && PhotoSession.items.size > 1) Text(
+                            "NEXT UNEDITED →",
+                            style = Pro.Label.copy(color = Color.White),
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.5f)).clickable {
+                                val n = PhotoSession.items.size
+                                val to = (1 until n).map { (sessionIdx + it) % n }.firstOrNull { !PhotoSession.items[it].edited }
+                                if (to != null) switchTo(to) else message = "Every photo in the filmstrip has been edited"
+                            }.padding(horizontal = 8.dp, vertical = 3.dp),
                         )
                         Text(
                             if (split) "SPLIT ✓" else "SPLIT",
@@ -1798,82 +2212,118 @@ private fun PhotoWorkspace(
                     }
                 }
             }
-            // Keyboard shortcuts (Bluetooth / USB keyboard, Samsung DeX).
+            // File menu (file icon in the top bar).
+            val fm = remember { FileMenuState() }
+            val curName = projectName
+            var photoProjectSettings by remember { mutableStateOf(false) }
+            if (photoProjectSettings) ProjectSettingsDialog(
+                video = false, onDismiss = { photoProjectSettings = false },
+                general = { EditorSettingsBody("Photo editor", com.dronedirector.veyrocutpro.ui.AppScreen.PHOTO_EDITOR, only = setOf("look", "prefs", "app")) },
+                storage = { EditorSettingsBody("Photo editor", com.dronedirector.veyrocutpro.ui.AppScreen.PHOTO_EDITOR, only = setOf("save", "nas", "catalog")) },
+            )
+            val fa = remember { FileActions() }.apply {
+                video = false
+                hasContent = { uri != Uri.EMPTY }
+                this.projectName = { curName }
+                newProject = { closeEditor() }
+                openProject = { showLoad = true }
+                openRecent = { id -> sessionSave(); onLoad(id) }
+                projectSettings = { photoProjectSettings = true }
+                save = { if (projectId == null) askName = true else saveProject(curName) }
+                saveAs = { askName = true }
+                saveCopy = { n ->
+                    val p = photoData(java.util.UUID.randomUUID().toString(), n)
+                    val thumb = preview
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { try { ProjectStore.savePhoto(context, p, thumb); true } catch (_: Throwable) { false } }
+                        message = if (ok) "Copy saved as \"$n\"" else "Couldn't save the copy"
+                    }
+                }
+                canRevert = { projectId != null }
+                revert = {
+                    val id = projectId
+                    if (id != null) scope.launch {
+                        val p = withContext(Dispatchers.IO) { ProjectStore.loadPhoto(context, id) }
+                        if (p == null) message = "Couldn't read the saved project"
+                        else { edit = editOf(context, p, false); message = "Back to the saved \"${p.name}\"" }
+                    }
+                }
+                capture = { onAddCamera() }
+                importGallery = { onPickGallery() }
+                importFiles = { onAddFiles() }
+                importNas = { onAddNas() }
+                exit = { sessionSave(); com.dronedirector.veyrocutpro.ui.AppExit.exiting = true }
+            }
+            // Keyboard shortcuts (Bluetooth / USB keyboard, Samsung DeX) — changeable under the keyboard icon.
+            remember { PhotoShortcuts.load(context); 0 }
             DisposableEffect(Unit) {
                 KeyBus.handler = handler@{ ev ->
                     if (ev.action != android.view.KeyEvent.ACTION_DOWN || askName) return@handler false
-                    val ctrl = ev.isCtrlPressed || ev.isMetaPressed
-                    val shift = ev.isShiftPressed
+                    val id = PhotoShortcuts.actionFor(ev) ?: return@handler false
                     val si = sessionIdx
-                    fun rate(f: (SessionPhoto) -> SessionPhoto, msg: String): Boolean {
-                        if (si < 0) { message = "Open the photo from the filmstrip to rate it"; return true }
-                        PhotoSession.update(context, si, f); message = msg; return true
+                    fun rate(f: (SessionPhoto) -> SessionPhoto, msg: String) {
+                        if (si < 0) { message = "Open the photo from the filmstrip to rate it"; return }
+                        PhotoSession.update(context, si, f); message = msg
                     }
-                    fun go(d: Int): Boolean { val n = PhotoSession.items.size; if (si < 0 || n < 2) return false; val to = (si + d).coerceIn(0, n - 1); if (to != si) switchTo(to); return true }
-                    fun open(pnl: PhotoPanel): Boolean { panel = if (panel == pnl && pnl != PhotoPanel.PRESETS) PhotoPanel.PRESETS else pnl; return true }
+                    fun go(d: Int) { val n = PhotoSession.items.size; if (si < 0 || n < 2) return; val to = (si + d).coerceIn(0, n - 1); if (to != si) switchTo(to) }
+                    fun open(pnl: PhotoPanel) { panel = if (panel == pnl && pnl != PhotoPanel.PRESETS) PhotoPanel.PRESETS else pnl }
                     val labels = listOf(0xFFFF3B30, 0xFFFFD60A, 0xFF34C759, 0xFF0A84FF).map { it.toInt() }
-                    val k = ev.keyCode
-                    when {
-                        ctrl && k == android.view.KeyEvent.KEYCODE_Z -> { if (shift) { if (undoPos < undo.lastIndex) { undoPos++; edit = undo[undoPos] } } else if (undoPos > 0) { undoPos--; edit = undo[undoPos] }; true }
-                        ctrl && k == android.view.KeyEvent.KEYCODE_Y -> { if (undoPos < undo.lastIndex) { undoPos++; edit = undo[undoPos] }; true }
-                        ctrl && k == android.view.KeyEvent.KEYCODE_C -> {
+                    fun label(i: Int) { val c = labels[i]; rate({ it.copy(label = if (it.label == c) null else c) }, "Colour label " + listOf("red", "yellow", "green", "blue")[i]) }
+                    when (id) {
+                        "undo" -> if (undoPos > 0) { undoPos--; edit = undo[undoPos] }
+                        "redo" -> if (undoPos < undo.lastIndex) { undoPos++; edit = undo[undoPos] }
+                        "copy" -> {
                             val e = edit
                             EditClipboard.copy(context, CopiedSettings(fromVideo = false, grade = e.grade, detail = e.detail, geometry = e.geometry, watermark = e.watermark))
-                            message = "Settings copied — Ctrl+V on another photo pastes the look"; true
+                            message = "Settings copied — paste them on another photo"
                         }
-                        ctrl && k == android.view.KeyEvent.KEYCODE_V -> {
+                        "paste", "pasteall" -> {
                             val c = EditClipboard.current
-                            if (c == null) message = "Nothing copied yet (Ctrl+C copies this photo's settings)"
+                            if (c == null) message = "Nothing copied yet"
                             else {
                                 var e = edit
                                 c.grade?.let { e = e.copy(grade = it) }; c.detail?.let { e = e.copy(detail = it) }
-                                if (shift) { c.geometry?.let { e = e.copy(geometry = it) }; c.watermark?.let { e = e.copy(watermark = it) } }
-                                edit = e; message = if (shift) "All settings pasted" else "Look pasted (Ctrl+Shift+V also pastes crop and watermark)"
+                                if (id == "pasteall") { c.geometry?.let { e = e.copy(geometry = it) }; c.watermark?.let { e = e.copy(watermark = it) } }
+                                edit = e; message = if (id == "pasteall") "All settings pasted" else "Look pasted"
                             }
-                            true
                         }
-                        ctrl && k == android.view.KeyEvent.KEYCODE_S -> { if (projectId == null) askName = true else saveProject(projectName); true }
-                        ctrl && k == android.view.KeyEvent.KEYCODE_E -> { if (!busy) export(); true }
-                        ctrl -> false
-                        k in android.view.KeyEvent.KEYCODE_0..android.view.KeyEvent.KEYCODE_5 -> { val n = k - android.view.KeyEvent.KEYCODE_0; rate({ it.copy(rating = n) }, if (n == 0) "Rating cleared" else "★".repeat(n)) }
-                        k in android.view.KeyEvent.KEYCODE_6..android.view.KeyEvent.KEYCODE_9 -> {
-                            val c = labels[k - android.view.KeyEvent.KEYCODE_6]
-                            rate({ it.copy(label = if (it.label == c) null else c) }, "Colour label " + listOf("red", "yellow", "green", "blue")[k - android.view.KeyEvent.KEYCODE_6])
-                        }
-                        k == android.view.KeyEvent.KEYCODE_P -> rate({ it.copy(flag = 1) }, "Flagged as pick")
-                        k == android.view.KeyEvent.KEYCODE_X -> rate({ it.copy(flag = -1) }, "Flagged as reject")
-                        k == android.view.KeyEvent.KEYCODE_U -> rate({ it.copy(flag = 0) }, "Flag removed")
-                        k == android.view.KeyEvent.KEYCODE_DPAD_LEFT || k == android.view.KeyEvent.KEYCODE_PAGE_UP -> go(-1)
-                        k == android.view.KeyEvent.KEYCODE_DPAD_RIGHT || k == android.view.KeyEvent.KEYCODE_PAGE_DOWN -> go(1)
-                        k == android.view.KeyEvent.KEYCODE_MOVE_HOME -> go(-10_000)
-                        k == android.view.KeyEvent.KEYCODE_MOVE_END -> go(10_000)
-                        k == android.view.KeyEvent.KEYCODE_BACKSLASH || k == android.view.KeyEvent.KEYCODE_Y -> { split = !split; true }
-                        k == android.view.KeyEvent.KEYCODE_Z -> {
-                            if (zoomK > 1f) resetZoom() else { zoomK = 3f; panX = 0f; panY = 0f }
-                            true
-                        }
-                        k == android.view.KeyEvent.KEYCODE_ESCAPE -> { picking = 0; split = false; resetZoom(); true }
-                        k == android.view.KeyEvent.KEYCODE_TAB -> { com.dronedirector.veyrocutpro.ui.Panels.set(context, "pe.controls", !showControls); true }
-                        k == android.view.KeyEvent.KEYCODE_R && shift -> { if (RefView.uri != null) RefView.shown = !RefView.shown else message = "Choose a reference first (REFERENCE on the photo)"; true }
-                        k == android.view.KeyEvent.KEYCODE_R -> open(PhotoPanel.CROP)
-                        k == android.view.KeyEvent.KEYCODE_Q -> open(PhotoPanel.HEAL)
-                        k == android.view.KeyEvent.KEYCODE_M -> open(PhotoPanel.MASKS)
-                        k == android.view.KeyEvent.KEYCODE_L -> open(PhotoPanel.LIGHT)
-                        k == android.view.KeyEvent.KEYCODE_C -> open(PhotoPanel.COLOR)
-                        k == android.view.KeyEvent.KEYCODE_D -> open(PhotoPanel.DETAIL)
-                        k == android.view.KeyEvent.KEYCODE_E -> open(PhotoPanel.EXPORT)
-                        k == android.view.KeyEvent.KEYCODE_H -> open(PhotoPanel.HISTORY)
-                        k == android.view.KeyEvent.KEYCODE_J -> { clipWarn = !clipWarn; message = if (clipWarn) "Clipping warning on" else "Clipping warning off"; true }
-                        k == android.view.KeyEvent.KEYCODE_SLASH || k == android.view.KeyEvent.KEYCODE_F1 -> { showShortcuts = true; true }
-                        else -> false
+                        "split" -> split = !split
+                        "zoom" -> if (zoomK > 1f) resetZoom() else { zoomK = 3f; panX = 0f; panY = 0f }
+                        "resetview" -> { picking = 0; split = false; resetZoom() }
+                        "controls" -> com.dronedirector.veyrocutpro.ui.Panels.set(context, "pe.controls", !showControls)
+                        "reference" -> if (RefView.uri != null) RefView.shown = !RefView.shown else message = "Choose a reference first (REFERENCE on the photo)"
+                        "clipping" -> { clipWarn = !clipWarn; message = if (clipWarn) "Clipping warning on" else "Clipping warning off" }
+                        "prev" -> go(-1); "next" -> go(1); "first" -> go(-10_000); "last" -> go(10_000)
+                        "rate0", "rate1", "rate2", "rate3", "rate4", "rate5" -> { val n = id.last() - '0'; rate({ it.copy(rating = n) }, if (n == 0) "Rating cleared" else "$n star" + if (n == 1) "" else "s") }
+                        "red" -> label(0); "yellow" -> label(1); "green" -> label(2); "blue" -> label(3)
+                        "pick" -> rate({ it.copy(flag = 1) }, "Flagged as pick")
+                        "reject" -> rate({ it.copy(flag = -1) }, "Flagged as reject")
+                        "unflag" -> rate({ it.copy(flag = 0) }, "Flag removed")
+                        "crop" -> open(PhotoPanel.CROP); "heal" -> open(PhotoPanel.HEAL); "masks" -> open(PhotoPanel.MASKS)
+                        "light" -> open(PhotoPanel.LIGHT); "color" -> open(PhotoPanel.COLOR); "detail" -> open(PhotoPanel.DETAIL)
+                        "exportpanel" -> open(PhotoPanel.EXPORT); "history" -> open(PhotoPanel.HISTORY)
+                        "filemenu" -> fm.menu = true
+                        "open" -> fa.openProject()
+                        "save" -> fa.save()
+                        "saveas" -> fa.saveAs()
+                        "import" -> fa.importFiles()
+                        "capture" -> fa.capture()
+                        "export" -> if (!busy) export()
+                        "settings" -> showSettings = true
+                        "shortcuts" -> showShortcuts = true
+                        else -> return@handler false
                     }
+                    true
                 }
                 onDispose { KeyBus.handler = null }
             }
-            if (showShortcuts) PhotoShortcutsDialog { showShortcuts = false }
+            if (showShortcuts) ShortcutsDialog(PhotoShortcuts) { showShortcuts = false }
+            // The photo stays on a dark background in the light look.
+            val previewBox = @Composable { mod: Modifier -> com.dronedirector.veyrocutpro.ui.ForceDark { previewBoxInner(mod.background(Ed.DarkBg)) } }
             val controls = @Composable { mod: Modifier ->
                 Column(mod.background(Ed.Panel)) {
                     PanelTabs(panel) { panel = it }
+                    RecentToolsRow(recentTools) { (p, title) -> panel = p; com.dronedirector.veyrocutpro.ui.Fold.jump("photo", title) }
                     if (showCopyBar) CopyPasteBar(
                         video = false,
                         onCopy = {
@@ -1899,7 +2349,22 @@ private fun PhotoWorkspace(
                             PhotoPanel.MASKS -> MasksPanel(edit.masks, tools, { edit = edit.copy(masks = it) }, onAi = aiMaskAction, onAiSub = aiSubAction, onPeople = peopleAction)
                             PhotoPanel.HEAL -> {
                                 SectionTitle("HEAL / CLONE") { edit = edit.copy(spots = emptyList()) }
-                                Chips(listOf("Heal", "Clone stamp"), if (cloneMode) 1 else 0) { cloneMode = it == 1; cloneSrc = null; cloneOff = null }
+                                Chips(listOf("Heal", "Clone stamp", "Red eye", "Pet eye"), if (eyeMode > 0) eyeMode + 1 else if (cloneMode) 1 else 0) {
+                                    cloneMode = it == 1; eyeMode = if (it >= 2) it - 1 else 0; cloneSrc = null; cloneOff = null
+                                }
+                                if (eyeMode > 0) {
+                                    Text(if (eyeMode == 1) "Tap each red pupil (set the size to the pupil). The red turns dark and natural; the iris and skin stay." else "Tap each glowing pet eye: the green / yellow glow becomes a dark pupil with a small catchlight.", color = Pro.Amber, fontSize = 11.sp)
+                                    if (eyeMode == 1) PillChip("FIND RED EYES", false, accentText = true) {
+                                        val b = base
+                                        if (b != null) scope.launch {
+                                            message = "Looking for red eyes…"
+                                            val found = withContext(Dispatchers.Default) { PhotoLocal.findRedEyes(b) }
+                                            val fresh = found.filter { n -> edit.spots.none { it.eye > 0 && kotlin.math.hypot((it.x - n.x).toDouble(), (it.y - n.y).toDouble()) < (it.r + n.r) } }
+                                            edit = edit.copy(spots = edit.spots + fresh)
+                                            message = if (fresh.isEmpty()) "No red eyes found — tap them by hand if there are any" else "${fresh.size} red eye(s) fixed"
+                                        }
+                                    }
+                                }
                                 if (cloneMode) {
                                     Text(if (cloneSrc == null) "Tap the spot to copy FROM." else "Tap where to paint the copy; more taps keep the same offset.", color = Pro.Amber, fontSize = 11.sp)
                                     Text("NEW SOURCE", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp), modifier = Modifier.clickable { cloneSrc = null; cloneOff = null }.padding(8.dp))
@@ -1946,6 +2411,29 @@ private fun PhotoWorkspace(
                                             Text("CLEAR ALL", style = Pro.Label.copy(color = Pro.Red, fontSize = 10.sp), modifier = Modifier.clickable { rts { it.copy(liquify = emptyList()) } }.padding(8.dp))
                                         }
                                         Text("Drag on the photo. Push moves pixels along your drag, Pinch shrinks and Bloat enlarges under the brush, Twirl turns, Restore brings back the original. The whole photo is shown while you liquify.", color = Pro.Dim, fontSize = 11.sp)
+                                        SectionTitle("FACE (AI)") { rts { it.copy(face = it.face?.copy(eyes = 0f, width = 0f, chin = 0f, nose = 0f, smile = 0f)) } }
+                                        val fs = rt.face
+                                        if (fs == null || fs.faces.isEmpty()) {
+                                            Text(if (fs != null) "No faces found in this photo." else "Finds the faces, then shape them with sliders — eyes, face width, chin, nose and smile. Subtle is best.", color = Pro.Dim, fontSize = 11.sp)
+                                            Text("FIND FACES", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
+                                                modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable {
+                                                    val b = base ?: return@clickable
+                                                    message = "Finding faces…"
+                                                    scope.launch {
+                                                        val found = withContext(Dispatchers.Default) { try { FaceShape.find(context, b) } catch (_: Throwable) { emptyList() } }
+                                                        rts { it.copy(face = FaceShape(found, b.width.toFloat() / b.height)) }
+                                                        message = if (found.isEmpty()) "No faces found" else "${found.size} face(s) found — use the sliders"
+                                                    }
+                                                }.padding(10.dp))
+                                        } else {
+                                            Text("${fs.faces.size} face(s)", style = Pro.Label)
+                                            EdSlider("Eyes", fs.eyes, -1f..1f, 0f, ::pct) { v -> rts { it.copy(face = fs.copy(eyes = v)) } }
+                                            EdSlider("Face width", fs.width, -1f..1f, 0f, ::pct) { v -> rts { it.copy(face = fs.copy(width = v)) } }
+                                            EdSlider("Chin", fs.chin, -1f..1f, 0f, ::pct) { v -> rts { it.copy(face = fs.copy(chin = v)) } }
+                                            EdSlider("Nose", fs.nose, -1f..1f, 0f, ::pct) { v -> rts { it.copy(face = fs.copy(nose = v)) } }
+                                            EdSlider("Smile", fs.smile, -1f..1f, 0f, ::pct) { v -> rts { it.copy(face = fs.copy(smile = v)) } }
+                                            Text("Every face in the photo gets the same change. Right = bigger / wider / longer / more smile, left = less.", color = Pro.Dim, fontSize = 11.sp)
+                                        }
                                     }
                                     1 -> {
                                         SectionTitle("FREQUENCY SEPARATION") { rts { it.copy(fsSmooth = 0f, fsTexture = 1f, fsArea = 0, fsMaskFile = null) } }
@@ -1977,7 +2465,35 @@ private fun PhotoWorkspace(
                             PhotoPanel.TEXT -> {
                                 // Text and sticker layers on the photo.
                                 var selText by remember { mutableStateOf<String?>(null) }
-                                SectionTitle("TEXT & STICKERS") { edit = edit.copy(texts = emptyList()) }
+                                SectionTitle("THUMBNAIL")
+                                Text("One tap to a video thumbnail: the photo cropped to 16:9, a big outlined title and the subject popped out with a glow (AI). Then change the title, colours and position.", color = Pro.Dim, fontSize = 11.sp)
+                                Text("MAKE A THUMBNAIL", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable {
+                                    val l = Layer(kind = LayerKind.TEXT, text = "YOUR TITLE", size = 0.17f, x = 0.32f, y = 0.8f, font = LayerFont.HEAVY, color = 0xFFFFD60A.toInt(),
+                                        stroke = 0.12f, borderColor = 0xFF000000.toInt(), shadow = true, wholeVideo = true)
+                                    edit = edit.copy(geometry = edit.geometry.copy(aspect = 16f / 9f), texts = edit.texts + l); selText = l.id
+                                    if (edit.bg.maskFile == null) findMask(MaskType.SUBJECT) { p -> edit = edit.copy(bg = edit.bg.copy(maskFile = p, mode = 5, color = 0xFFFFD60A.toInt())) }
+                                    else edit = edit.copy(bg = edit.bg.copy(mode = 5, color = 0xFFFFD60A.toInt()))
+                                    message = "Thumbnail set up — tap the title below to change it"
+                                }.padding(10.dp))
+                                SectionTitle("TEXT EFFECTS")
+                                Text("Special effect text — neon, chrome, gold, fire, 3D, glitch and more. Tap one to add it; a selected text can switch its effect below.", color = Pro.Dim, fontSize = 11.sp)
+                                Row(Modifier.hintedScroll(horizontal = true).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    TextFx.NAMES.withIndex().drop(1).forEach { (i, n) ->
+                                        PillChip(n, false) {
+                                            val l = Layer(kind = LayerKind.TEXT, text = n.uppercase(), size = 0.1f, x = 0.5f, y = 0.5f, face = if (i in listOf(1, 10)) "monoton" else "anton", textFx = i,
+                                                color = when (i) { 1 -> 0xFFFF2D95.toInt(); 14 -> 0xFFFFD60A.toInt(); else -> 0xFFFFFFFF.toInt() }, shadow = false, wholeVideo = true, name = n)
+                                            edit = edit.copy(texts = edit.texts + l); selText = l.id
+                                        }
+                                    }
+                                }
+                                SectionTitle("MORE TEXT")
+                                Text("Ready-made kinds of text — headlines, quotes, speech bubbles, hashtags, sale tags and more.", color = Pro.Dim, fontSize = 11.sp)
+                                TextTypeGallery { t -> val l = t.layer(0L, 1L).copy(wholeVideo = true); edit = edit.copy(texts = edit.texts + l); selText = l.id }
+                                SectionTitle("NAME LABELS")
+                                Text("Lower-third name and title cards — tap one to add it, then type the name and title.", color = Pro.Dim, fontSize = 11.sp)
+                                LowerThirdGallery { i -> val l = lowerThirdLayer(i, 0L, 1L, wholeVideo = true); edit = edit.copy(texts = edit.texts + l); selText = l.id }
+                                PhotoLayersSection(edit.texts, (preview ?: base)?.let { it.width.toFloat() / it.height } ?: 1.5f) { edit = edit.copy(texts = it) }
+                                SectionTitle("TEXT & STICKERS") { edit = edit.copy(texts = edit.texts.filter { PhotoLayers.isPhotoLayer(it) }) }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("+ TEXT", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable {
                                         val l = Layer(kind = LayerKind.TEXT, text = "Your text", size = 0.07f, x = 0.5f, y = 0.5f, wholeVideo = true)
@@ -1990,7 +2506,7 @@ private fun PhotoWorkspace(
                                         }.padding(horizontal = 8.dp, vertical = 4.dp))
                                     }
                                 }
-                                edit.texts.forEach { t ->
+                                edit.texts.filterNot { PhotoLayers.isPhotoLayer(it) }.forEach { t ->
                                     val sel = t.id == selText
                                     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp).clip(RoundedCornerShape(8.dp)).background(if (sel) Pro.Amber.copy(alpha = 0.16f) else Ed.Raised)
                                         .clickable { selText = t.id }.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -2003,12 +2519,25 @@ private fun PhotoWorkspace(
                                     fun upd(n: Layer) { edit = edit.copy(texts = edit.texts.map { if (it.id == t.id) n else it }) }
                                     if (t.kind == LayerKind.TEXT) {
                                         androidx.compose.material3.OutlinedTextField(value = t.text, onValueChange = { upd(t.copy(text = it)) }, label = { Text("Text") }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
-                                        Chips(LayerFont.entries.map { it.label }, t.font.ordinal) { upd(t.copy(font = LayerFont.entries[it])) }
+                                        if (t.lowerThird != null) {
+                                            Text("Name label: the first line is the name, the next line the title.", color = Pro.Dim, fontSize = 11.sp)
+                                            LowerThirdGallery(t.lowerThird) { i -> upd(t.copy(lowerThird = i)) }
+                                            SecondColour(t, "Accent colour") { c -> upd(t.copy(textColor2 = c)) }
+                                        }
+                                        FontPicker(t.face, t.font) { id, f -> upd(if (id != null) t.copy(face = id) else t.copy(face = null, font = f ?: t.font)) }
+                                        if (t.lowerThird == null) {
+                                            TextFxPicker(t) { fx -> upd(t.copy(textFx = fx)) }
+                                            if ((t.textFx ?: 0) in listOf(2, 9, 17)) SecondColour(t, if (t.textFx == 2) "Gradient to" else if (t.textFx == 9) "Outer outline" else "Highlighter colour") { c -> upd(t.copy(textColor2 = c)) }
+                                        }
                                         val cols = listOf(0xFFFFFFFF.toInt(), 0xFF000000.toInt(), 0xFFFFB300.toInt(), 0xFFFF3B30.toInt(), 0xFF34C759.toInt(), 0xFF0A84FF.toInt())
                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
                                             cols.forEach { cl -> Box(Modifier.size(26.dp).clip(CircleShape).background(Color(cl)).border(2.dp, if (t.color == cl) Pro.Amber else Pro.Line, CircleShape).clickable { upd(t.copy(color = cl)) }) }
                                         }
                                         Chips(listOf("Plain", "Shadow", "Box"), if (t.box) 2 else if (t.shadow) 1 else 0) { i -> upd(t.copy(shadow = i == 1, box = i == 2)) }
+                                        EdSlider("Outline", t.stroke ?: 0f, 0f..0.25f, 0f, ::pct) { upd(t.copy(stroke = it.takeIf { v -> v > 0.005f })) }
+                                        if ((t.stroke ?: 0f) > 0f) Chips(listOf("Black outline", "White outline", "Red outline"), when (t.borderColor) { 0xFFFFFFFF.toInt() -> 1; 0xFFFF3B30.toInt() -> 2; else -> 0 }) { i ->
+                                            upd(t.copy(borderColor = listOf(0xFF000000.toInt(), 0xFFFFFFFF.toInt(), 0xFFFF3B30.toInt())[i]))
+                                        }
                                     }
                                     EdSlider("Size", t.size, 0.02f..0.4f, 0.07f, ::pct) { upd(t.copy(size = it)) }
                                     EdSlider("Across", t.x, 0f..1f, 0.5f, ::pct) { upd(t.copy(x = it)) }
@@ -2102,6 +2631,7 @@ private fun PhotoWorkspace(
                                     autoWb = { base?.let { b -> edit = edit.copy(grade = Develop.autoWb(b, edit.grade)); message = "Auto white balance applied" } },
                                     importXmp = { try { pickXmp.launch(arrayOf("*/*")) } catch (_: Throwable) {} },
                                     exportXmp = { exportXmp() },
+                                    adaptive = { p -> runAdaptive(p) }, adaptiveBusy = adaptiveBusy,
                                     analyseDepth = { withDepth { p -> edit = edit.copy(lensBlur = (edit.lensBlur ?: LensBlur()).copy(depthFile = p, on = true)) } },
                                     depthBusy = depthBusy,
                                     upright = { mode ->
@@ -2117,11 +2647,75 @@ private fun PhotoWorkspace(
                                         }
                                     },
                                     uprightBusy = uprightBusy,
+                                    smartCrop = { asp ->
+                                        val b = base
+                                        if (b != null && !uprightBusy) {
+                                            uprightBusy = true
+                                            scope.launch {
+                                                val r = withContext(Dispatchers.Default) { try { SmartCrop.solve(context, b, edit.geometry, asp) } catch (_: Throwable) { null } }
+                                                uprightBusy = false
+                                                if (r != null) { edit = edit.copy(geometry = r.geometry); message = "Smart crop: kept the ${r.found} in" }
+                                            }
+                                        }
+                                    },
+                                    smartBusy = uprightBusy,
                                 ),
                             )
                         }
                         if (panel == PhotoPanel.EFFECTS) { backgroundSection(); skySection() }
                         if (panel == PhotoPanel.EXPORT) {
+                            SectionTitle("METADATA") { edit = edit.copy(meta = null) }
+                            run {
+                                val m = edit.meta ?: PhotoMetaEdit()
+                                @Composable fun field(label: String, v: String, f: (PhotoMetaEdit, String) -> PhotoMetaEdit) =
+                                    androidx.compose.material3.OutlinedTextField(v, { s -> edit = edit.copy(meta = f(m, s.take(300)).takeIf { !it.isEmpty }) }, label = { Text(label) }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp))
+                                field("Title", m.title) { x, s -> x.copy(title = s) }
+                                field("Caption", m.caption) { x, s -> x.copy(caption = s) }
+                                field("Author", m.artist) { x, s -> x.copy(artist = s) }
+                                field("Copyright", m.copyright) { x, s -> x.copy(copyright = s) }
+                                field("Keywords (comma between)", m.keywords) { x, s -> x.copy(keywords = s) }
+                                Text("Written into the exported photo (JPEG, PNG, WebP). Kept with this photo's edit; with Select multiple in the filmstrip it goes to every picked photo. Keep camera info and location are under EXPORT.", color = Pro.Dim, fontSize = 11.sp)
+                            }
+                            SectionTitle("FOR SOCIAL MEDIA")
+                            var slides by remember { mutableStateOf(3) }
+                            var slideShape by remember { mutableStateOf(1) }
+                            fun social(beforeAfter: Boolean) {
+                                val after = preview; val b = base
+                                if (busy || after == null || b == null) return
+                                busy = true
+                                val e = edit
+                                scope.launch {
+                                    val n = withContext(Dispatchers.Default) {
+                                        try {
+                                            val pics = if (beforeAfter) {
+                                                // Before: the photo as it came, cropped and turned the same way.
+                                                val bf = ImageOps.geometry(b, e.geometry)
+                                                listOf(SocialExport.beforeAfter(bf, after)).also { if (bf !== b) bf.recycle() }
+                                            } else SocialExport.carousel(after, slides, if (slideShape == 0) 1f else 0.8f)
+                                            SocialExport.save(context, pics, uri.takeIf { it != Uri.EMPTY })
+                                        } catch (_: Throwable) { 0 }
+                                    }
+                                    busy = false
+                                    message = when {
+                                        n == 0 -> "Couldn't save"
+                                        beforeAfter -> "Before / after picture saved"
+                                        else -> "$n carousel slides saved — post them in order"
+                                    }
+                                }
+                            }
+                            Text(
+                                "SAVE BEFORE / AFTER PICTURE", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
+                                modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable(enabled = !busy) { social(true) }.padding(10.dp),
+                            )
+                            Text("The original and your edit in one picture (side by side, or one above the other for wide photos), labelled.", color = Pro.Dim, fontSize = 11.sp)
+                            Text("PANORAMA CAROUSEL", style = Pro.Label.copy(color = Pro.Dim, fontSize = 10.sp), modifier = Modifier.padding(top = 8.dp))
+                            Chips(listOf("2 slides", "3 slides", "4 slides", "5 slides"), slides - 2) { slides = it + 2 }
+                            Chips(listOf("1:1", "4:5"), slideShape) { slideShape = it }
+                            Text(
+                                "SAVE CAROUSEL SLIDES", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
+                                modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable(enabled = !busy) { social(false) }.padding(10.dp),
+                            )
+                            Text("Cuts a wide photo into slides that join up seamlessly when swiped through on Instagram. Both are saved as JPEG without the location.", color = Pro.Dim, fontSize = 11.sp)
                             SectionTitle("BATCH")
                             Chips(listOf("Look only", "Look + crop + masks + watermark"), if (batchWithCrop) 1 else 0) { batchWithCrop = it == 1 }
                             Text(
@@ -2138,8 +2732,15 @@ private fun PhotoWorkspace(
             Column(Modifier.fillMaxSize()) {
                 // Top bar
                 Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    // No back arrow here (it squeezed EXPORT); the phone's back gesture / button closes the editor.
-                    androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                    // Back arrow on tablets (on phones it squeezed EXPORT; the back gesture / button closes the editor there).
+                    if (androidx.compose.ui.platform.LocalConfiguration.current.smallestScreenWidthDp >= 600) {
+                        BarIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", enabled = !busy) { closeEditor() }
+                    }
+                    // Phones: these icons scroll sideways (with hint arrows); LOAD, SAVE and EXPORT stay put.
+                    BarIconGroup {
+                    FileMenuButton(fa, fm)
+                    BarIcon(Icons.Filled.Keyboard, "Keyboard shortcuts") { showShortcuts = true }
+                    com.dronedirector.veyrocutpro.ui.HelpButton(com.dronedirector.veyrocutpro.ui.GuideVariant.PHOTO)
                     BarIcon(Icons.AutoMirrored.Filled.Undo, "Undo", enabled = undoPos > 0) { undoPos--; edit = undo[undoPos] }
                     BarIcon(Icons.AutoMirrored.Filled.Redo, "Redo", enabled = undoPos < undo.lastIndex) { undoPos++; edit = undo[undoPos] }
                     BarIcon(Icons.Filled.BarChart, "Scope", tint = if (showScope) Pro.Amber else Color.White) { com.dronedirector.veyrocutpro.ui.Panels.set(context, "pe.scope", !showScope) }
@@ -2153,6 +2754,8 @@ private fun PhotoWorkspace(
                         },
                     )
                     BarIcon(Icons.Filled.Settings, "Settings") { showSettings = true }
+                    MergeMenuButton(enabled = !busy, onMerge = onMerge)
+                    }
                     BarButton("LOAD", enabled = !busy) { showLoad = true }
                     BarButton("SAVE", enabled = !busy) { askName = true }
                     Text(
@@ -2241,9 +2844,43 @@ private fun PhotoWorkspace(
 }
 
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun TopIcon(icon: ImageVector, label: String, enabled: Boolean = true, tint: Color = Color.White, onClick: () -> Unit) {
-    Box(Modifier.size(42.dp).clip(CircleShape).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    Box(Modifier.size(42.dp).clip(CircleShape).combinedClickable(enabled = enabled, onClick = onClick, onLongClick = { com.dronedirector.veyrocutpro.ui.HelpTip.show(label, view) }), contentAlignment = Alignment.Center) {
         Icon(icon, contentDescription = label, tint = if (enabled) tint else tint.copy(alpha = 0.3f), modifier = Modifier.size(22.dp))
+    }
+}
+
+/** The photo editor's recently used tools (panel + section), newest first. */
+private object RecentTools {
+    private const val KEY = "pe_recent_tools"
+    fun load(c: Context): List<Pair<PhotoPanel, String>> =
+        (c.getSharedPreferences("procam", Context.MODE_PRIVATE).getString(KEY, "") ?: "").split("\n").mapNotNull { l ->
+            val p = l.substringBefore('|'); val t = l.substringAfter('|', "")
+            PhotoPanel.entries.firstOrNull { it.name == p }?.takeIf { t.isNotEmpty() }?.let { it to t }
+        }
+    fun add(c: Context, p: PhotoPanel, title: String): List<Pair<PhotoPanel, String>> {
+        val list = (listOf(p to title) + load(c).filter { it.second != title }).take(5)
+        c.getSharedPreferences("procam", Context.MODE_PRIVATE).edit().putString(KEY, list.joinToString("\n") { it.first.name + "|" + it.second }).apply()
+        return list
+    }
+}
+
+@Composable
+private fun RecentToolsRow(list: List<Pair<PhotoPanel, String>>, onOpen: (Pair<PhotoPanel, String>) -> Unit) {
+    if (list.isEmpty() || com.dronedirector.veyrocutpro.camera.SimpleMode.on) return
+    Row(
+        Modifier.fillMaxWidth().hintedScroll(horizontal = true).padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("RECENT", style = Pro.Label.copy(color = Pro.Dim, fontSize = 10.sp))
+        list.forEach { t ->
+            Text(
+                com.dronedirector.veyrocutpro.ui.I18n.tr(t.second).lowercase().replaceFirstChar { it.uppercase() }, color = Pro.Amber, fontSize = 11.sp, maxLines = 1,
+                modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, Pro.Amber.copy(alpha = 0.4f), RoundedCornerShape(50)).clickable { onOpen(t) }.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
@@ -2482,10 +3119,18 @@ internal fun runPhotoExport(context: Context, req: PhotoExportReq): PhotoExportR
         val fmt = if (e.bg.active && e.bg.mode == 2 && req.format !in listOf(1, 2, 4, 5)) 1 else req.format
         val saved = savePhotoAs(context, out, fmt, (req.quality * 100).toInt(), if (req.keepExif) uri else null, req.stripGps)
         out.recycle()
+        // Your own title, caption, author, copyright and keywords.
+        // (The photo's own METADATA first; else what a metadata preset gave it in the library.)
+        if (saved != null) (e.meta?.takeIf { !it.isEmpty } ?: try { LibraryStore.load(context); LibraryStore.get(uri.toString()).meta } catch (_: Throwable) { null })?.let { MetaEdit.write(context, saved, it) }
         // Camera Raw (.xmp) sidecar for the original, with the closest matching settings.
         if (saved != null && PhotoMeta.sidecar && uri != Uri.EMPTY) {
             if (PhotoMeta.writeSidecar(context, uri, PhotoMeta.sidecarXmp(e.grade, e.detail, e.geometry, meta != null)) == null) res.sidecarFailed = true
         }
+        // Round trip from the video editor: the exported photo goes back to its timeline.
+        if (saved != null) PhotoRoundTrip.onExported?.let { cb -> android.os.Handler(android.os.Looper.getMainLooper()).post { cb(saved) } }
+        // Content credentials (signed record of creator and edit), then upload after export.
+        if (saved != null && ContentCredentials.on(context, false)) ContentCredentials.sign(context, saved, false)
+        ExportUpload.after(context, saved, false)
         return saved
     }
 
@@ -2548,6 +3193,7 @@ private fun PhotoPanelContent(
                 PillChip("EXPORT AS .XMP", false, accentText = true) { dev.exportXmp() }
             }
             Text("Import .xmp presets or sidecars (Camera Raw settings) (they're added to MY PRESETS). Export saves this look as an .xmp preset in Documents/AlcorCutPro/Presets.", color = Pro.Dim, fontSize = 11.sp)
+            if (dev != null) AdaptivePresetSection(dev.adaptiveBusy) { dev.adaptive(it) }
             BuiltInPresetSection(thumbSrc, g, e.detail) { ng, nd -> set(e.copy(grade = ng, detail = nd.copy(aiDenoise = e.detail.aiDenoise))) }
             LutSection(g) { ng -> set(e.copy(grade = ng)) }
             SectionTitle("PROFILE / LOOK")
@@ -2625,6 +3271,8 @@ private fun PhotoPanelContent(
             EdSlider("Shadows", g.curveShadows) { v -> grade { it.copy(curveShadows = v) } }
             SectionTitle("CONTRAST PIVOT")
             EdSlider("Pivot", g.pivot, 0.2f..0.7f, 0.435f, ::pct) { v -> grade { it.copy(pivot = v) } }
+            SectionTitle("HUE CURVES") { grade { it.copy(hueCurves = null) } }
+            HueCurvesEditor(g.hueCurves) { hc -> grade { it.copy(hueCurves = hc) } }
         }
         PhotoPanel.COLOR -> {
             SectionTitle("WHITE BALANCE") { set(e.copy(raw = if (isRaw) e.raw.copy(wb = 0) else e.raw, grade = g.copy(temperature = 0f, tint = 0f))) }
@@ -2750,6 +3398,49 @@ private fun PhotoPanelContent(
                 EdSlider("  Roughness", e.detail.grainRg, 0f..1f, 0.5f, ::pct) { v -> detail { it.copy(grainRough = v - 0.5f) } }
             }
             EdSlider("Fade", g.fade, 0f..1f, format = ::pct) { v -> grade { it.copy(fade = v) } }
+            fun rt(f: (Retouch) -> Retouch) = set(e.copy(retouch = f(e.retouch)))
+            val r = e.retouch
+            // ---- Colour splash
+            SectionTitle("COLOUR SPLASH") { rt { it.copy(splashHue = null) } }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp).hintedScroll(horizontal = true)) {
+                PillChip("Off", r.splashHue == null) { rt { it.copy(splashHue = null) } }
+                listOf("Red" to 0f, "Orange" to 30f, "Yellow" to 55f, "Green" to 120f, "Teal" to 175f, "Blue" to 215f, "Purple" to 280f, "Pink" to 325f).forEach { (n, hue) ->
+                    PillChip(n, r.splashHue == hue) { rt { it.copy(splashHue = hue) } }
+                }
+            }
+            if (r.splashHue != null) {
+                EdSlider("Colour", r.splashHue, 0f..359f, 0f, { "%.0f°".format(it) }) { v -> rt { it.copy(splashHue = v) } }
+                EdSlider("Range", r.splashRange, 5f..90f, 30f, { "%.0f°".format(it) }) { v -> rt { it.copy(splashRange = v) } }
+                EdSlider("Strength", r.splashAmount, 0f..1f, 1f, ::pct) { v -> rt { it.copy(splashAmount = v) } }
+            }
+            Text("Keeps one colour and turns everything else black and white — a red coat, a yellow taxi.", color = Pro.Dim, fontSize = 11.sp)
+            // ---- Tilt-shift
+            SectionTitle("TILT-SHIFT MINIATURE") { rt { it.copy(tiltCenter = null) } }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Tilt-shift", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Switch(r.tiltCenter != null, { v -> rt { it.copy(tiltCenter = if (v) 0.55f else null) } }, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Pro.Amber, checkedThumbColor = Color.Black))
+            }
+            if (r.tiltCenter != null) {
+                EdSlider("Sharp band position", r.tiltCenter, 0f..1f, 0.55f, ::pct) { v -> rt { it.copy(tiltCenter = v) } }
+                EdSlider("Sharp band height", r.tiltWidth, 0.02f..0.6f, 0.18f, ::pct) { v -> rt { it.copy(tiltWidth = v) } }
+                EdSlider("Blur", r.tiltBlur, 0f..1f, 0.6f, ::pct) { v -> rt { it.copy(tiltBlur = v) } }
+                EdSlider("Colour boost", r.tiltSat, 0f..1f, 0.25f, ::pct) { v -> rt { it.copy(tiltSat = v) } }
+            }
+            Text("A sharp band with blurred top and bottom makes a scene look like a model — best from high up, e.g. a drone shot.", color = Pro.Dim, fontSize = 11.sp)
+            // ---- Sun glow
+            SectionTitle("SUN GLOW & RAYS") { rt { it.copy(glowX = null) } }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Sun glow", color = Color.White, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Switch(r.glowX != null, { v -> rt { it.copy(glowX = if (v) 0.7f else null) } }, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Pro.Amber, checkedThumbColor = Color.Black))
+            }
+            if (r.glowX != null) {
+                EdSlider("Across", r.glowX, 0f..1f, 0.7f, ::pct) { v -> rt { it.copy(glowX = v) } }
+                EdSlider("Down", r.glowY, 0f..1f, 0.25f, ::pct) { v -> rt { it.copy(glowY = v) } }
+                EdSlider("Size", r.glowSize, 0.05f..1f, 0.35f, ::pct) { v -> rt { it.copy(glowSize = v) } }
+                EdSlider("Strength", r.glowStrength, 0f..1f, 0.6f, ::pct) { v -> rt { it.copy(glowStrength = v) } }
+                EdSlider("Rays", r.glowRays, 0f..1f, 0.5f, ::pct) { v -> rt { it.copy(glowRays = v) } }
+            }
+            Text("Adds a warm sun with soft rays — put it where the sun is, or just outside the frame for a flare of light.", color = Pro.Dim, fontSize = 11.sp)
             // ---- Lens Blur
             val lb = e.lensBlur
             SectionTitle("LENS BLUR (AI DEPTH)") { set(e.copy(lensBlur = null)) }
@@ -2782,6 +3473,14 @@ private fun PhotoPanelContent(
                 "16:9" to 16f / 9f, "9:16" to 9f / 16f, "21:9" to 21f / 9f, "2.39:1" to 2.39f, "5:7" to 5f / 7f,
             )
             Chips(aspects.map { it.first }, aspects.indexOfFirst { it.second == geom.aspect }.coerceAtLeast(0)) { i -> geo { it.copy(aspect = aspects[i].second) } }
+            if (dev != null) {
+                SectionTitle("SMART CROP")
+                if (dev.smartBusy) Text("Finding the subject…", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(vertical = 6.dp))
+                else Row(Modifier.hintedScroll(horizontal = true).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SmartCrop.SHAPES.forEach { (n, a) -> PillChip(n, false) { dev.smartCrop(a) } }
+                }
+                Text("Crops to the shape with faces, or else the main subject, kept in the picture (eyes about a third from the top). Fine-tune by pinching the photo.", color = Pro.Dim, fontSize = 11.sp)
+            }
             SectionTitle("EXPAND (CLOUD AI)")
             var exAsp by remember { mutableStateOf(0) }
             var exPos by remember { mutableStateOf(0) }
@@ -2839,7 +3538,7 @@ private fun PhotoPanelContent(
                         value = wm.text, onValueChange = { set(e.copy(watermark = wm.copy(text = it))) },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), label = { Text("Watermark text") },
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                            focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg,
                             focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber,
                         ),
                     )
@@ -2947,7 +3646,7 @@ private fun PhotoPanelContent(
                 androidx.compose.material3.OutlinedTextField(
                     value = ExportOpts.template, onValueChange = { ExportOpts.template = it.take(80); ExportOpts.save(ctx) }, singleLine = true,
                     modifier = Modifier.fillMaxWidth(), label = { Text("Template") },
-                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber),
                 )
                 Row(Modifier.hintedScroll(horizontal = true).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ExportOpts.TOKENS.forEach { t -> PillChip(t, false) { ExportOpts.template = ExportOpts.template + (if (ExportOpts.template.isEmpty() || t == "{name}") "" else "_") + t; ExportOpts.save(ctx) } }
@@ -2965,7 +3664,7 @@ private fun PhotoPanelContent(
                         value = value, onValueChange = { onChange(it.take(if (single) 200 else 2000)); PhotoMeta.save(ctx) },
                         label = { Text(label) }, singleLine = single,
                         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                            focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg,
                             focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber,
                         ),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
@@ -2990,6 +3689,8 @@ private fun PhotoPanelContent(
                     )
                 }
             }
+            ContentCredentialsSection(video = false)
+            ExportUploadSection(video = false)
         }
     }
 }
@@ -3060,9 +3761,38 @@ fun savePicture(context: Context, bmp: Bitmap, png: Boolean, quality: Int, area:
 
 /** Slightly smaller top-bar icon so the photo editor's bar fits phones. */
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun BarIcon(icon: ImageVector, label: String, enabled: Boolean = true, tint: Color = Color.White, onClick: () -> Unit) {
-    Box(Modifier.size(36.dp).clip(CircleShape).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    Box(Modifier.size(36.dp).clip(CircleShape).combinedClickable(enabled = enabled, onClick = onClick, onLongClick = { com.dronedirector.veyrocutpro.ui.HelpTip.show(label, view) }), contentAlignment = Alignment.Center) {
         Icon(icon, contentDescription = label, tint = if (enabled) tint else tint.copy(alpha = 0.3f), modifier = Modifier.size(21.dp))
+    }
+}
+
+/** Toolbar → MERGE PHOTOS ▾: the same merges as on the editor's start page. */
+@Composable
+private fun MergeMenuButton(enabled: Boolean, onMerge: (MergeKind) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Text(
+            "MERGE PHOTOS ▾", style = Pro.Value.copy(color = if (enabled) Pro.Amber else Pro.Dim, fontSize = 11.sp), maxLines = 1, softWrap = false,
+            modifier = Modifier.padding(start = 4.dp).clip(RoundedCornerShape(50)).background(Ed.Raised).clickable(enabled = enabled) { open = true }
+                .padding(horizontal = 9.dp, vertical = 7.dp),
+        )
+        androidx.compose.material3.DropdownMenu(open, { open = false }, containerColor = Pro.PanelSolid) {
+            Text("MERGE PHOTOS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+            MergeKind.entries.forEach { k ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = {
+                        Column(Modifier.widthIn(max = 280.dp)) {
+                            Text(k.label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(k.hint, color = Pro.Dim, fontSize = 11.sp, maxLines = 3)
+                        }
+                    },
+                    onClick = { open = false; onMerge(k) },
+                )
+            }
+        }
     }
 }
 
@@ -3197,7 +3927,7 @@ private fun FoldRow(title: String, sub: String, open: Boolean, highlight: Boolea
             Text(title, color = if (highlight) Pro.Amber else Color.White, fontSize = if (big) 13.sp else 12.sp, maxLines = 1)
             Text(sub, color = Pro.Dim, fontSize = 10.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
-        androidx.compose.material3.Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = Pro.Dim)
+        com.dronedirector.veyrocutpro.ui.Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = Pro.Dim)
     }
 }
 
@@ -3220,7 +3950,7 @@ private fun LookTiles(meta: RawDng.Meta?, lin: RawDng.Linear?, dev: RawDng.Dev, 
                     .clickable { onPick(i) }.padding(3.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.size(120.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF1A1E26))) {
+                Box(Modifier.size(120.dp).clip(RoundedCornerShape(10.dp)).background(com.dronedirector.veyrocutpro.ui.AppTheme.pick(Color(0xFF1A1E26), Color(0xFFE2E4E8)))) {
                     thumb?.let { t -> val img = remember(t) { t.asImageBitmap() }; Image(img, null, Modifier.size(120.dp), contentScale = ContentScale.Crop) }
                 }
                 Text(look.label, color = if (on) Pro.Amber else Color.White, fontSize = 14.sp, maxLines = 2, lineHeight = 17.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -3311,10 +4041,25 @@ private fun LightPad(x: Float, y: Float, onChange: (Float, Float) -> Unit) {
     ) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val c = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2)
-            drawCircle(Color.White.copy(alpha = 0.25f), size.minDimension * 0.18f, c)
+            drawCircle(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.25f), size.minDimension * 0.18f, c)
             val p = androidx.compose.ui.geometry.Offset((x + 1) / 2 * size.width, (y + 1) / 2 * size.height)
             drawLine(Pro.Amber.copy(alpha = 0.6f), p, c, 2f)
             drawCircle(Pro.Amber, 9.dp.toPx(), p)
         }
+    }
+}
+
+/** A start button on the empty photo view: icon and label on one line, never split inside a word. */
+@Composable
+private fun EmptyAddButton(icon: ImageVector, label: String, filled: Boolean = false, onClick: () -> Unit) {
+    val fg = if (filled) Color.Black else Pro.Amber
+    Row(
+        Modifier.clip(RoundedCornerShape(50))
+            .then(if (filled) Modifier.background(Pro.Amber) else Modifier.border(1.dp, Pro.Amber, RoundedCornerShape(50)))
+            .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = fg, modifier = Modifier.size(18.dp))
+        Text(label, color = fg, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, modifier = Modifier.padding(start = 6.dp))
     }
 }

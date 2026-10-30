@@ -17,6 +17,13 @@ open class Context {
         const val CONNECTIVITY_SERVICE = "connectivity"
         const val AUDIO_SERVICE = "audio"
         const val VIBRATOR_SERVICE = "vibrator"
+        const val CLIPBOARD_SERVICE = "clipboard"
+        const val ACTIVITY_SERVICE = "activity"
+        const val NSD_SERVICE = "servicediscovery"
+        const val USB_SERVICE = "usb"
+        const val BATTERY_SERVICE = "batterymanager"
+        const val RECEIVER_NOT_EXPORTED = 4
+        const val RECEIVER_EXPORTED = 2
 
         /** The one app instance. */
         val app: Context by lazy { Context() }
@@ -52,11 +59,18 @@ open class Context {
 
     fun getSystemService(name: String): Any? = when (name) {
         CONNECTIVITY_SERVICE -> android.net.ConnectivityManager()
+        CLIPBOARD_SERVICE -> ClipboardManager()
+        ACTIVITY_SERVICE -> android.app.ActivityManager()
+        USB_SERVICE -> android.hardware.usb.UsbManager()
         else -> null
     }
 
     @Suppress("UNCHECKED_CAST")
     fun <T> getSystemService(c: Class<T>): T = (if (c == android.net.ConnectivityManager::class.java) android.net.ConnectivityManager() else null) as T
+
+    fun registerReceiver(r: BroadcastReceiver, f: IntentFilter): Intent? = null
+    fun registerReceiver(r: BroadcastReceiver, f: IntentFilter, flags: Int): Intent? = null
+    fun unregisterReceiver(r: BroadcastReceiver) {}
 
     val resources: android.content.res.Resources get() = android.content.res.Resources.system
     val applicationInfo: android.content.pm.ApplicationInfo get() = android.content.pm.ApplicationInfo(root.path)

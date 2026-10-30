@@ -52,10 +52,12 @@ class Canvas(private var bmp: Bitmap? = null) {
     // ------------------------------------------------------------------ pictures
 
     fun drawBitmap(src: Bitmap, left: Float, top: Float, paint: Paint?) {
+        bmp?.let { it.gen++ }
         drawBitmap(src, Matrix().apply { setTranslate(left, top) }, paint)
     }
 
     fun drawBitmap(src: Bitmap, srcRect: Rect?, dst: RectF, paint: Paint?) {
+        bmp?.let { it.gen++ }
         val s = srcRect ?: Rect(0, 0, src.width, src.height)
         val part = if (s.left == 0 && s.top == 0 && s.right == src.width && s.bottom == src.height) src
             else Bitmap.createBitmap(src, s.left, s.top, s.width(), s.height())
@@ -67,6 +69,7 @@ class Canvas(private var bmp: Bitmap? = null) {
     fun drawBitmap(src: Bitmap, srcRect: Rect?, dst: Rect, paint: Paint?) = drawBitmap(src, srcRect, RectF(dst), paint)
 
     fun drawBitmap(src0: Bitmap, matrix: Matrix?, paint: Paint?) {
+        bmp?.let { it.gen++ }
         val out = bmp ?: return
         clip?.let { c ->
             // Draw on a layer, then copy only the pixels inside the clip.
@@ -96,6 +99,13 @@ class Canvas(private var bmp: Bitmap? = null) {
         val cm = (paint?.colorFilter as? ColorMatrixColorFilter)?.m
         val pa = paint?.alpha ?: 255
         val clear = (paint?.xfermode as? PorterDuffXfermode)?.mode
+        // Mixing modes (multiply, screen, overlay…): per pixel, like the phone.
+        val mix: BlendMode? = paint?.blendMode?.takeIf { it in MIXES } ?: when (clear) {
+            PorterDuff.Mode.MULTIPLY -> BlendMode.MULTIPLY; PorterDuff.Mode.SCREEN -> BlendMode.SCREEN
+            PorterDuff.Mode.OVERLAY -> BlendMode.OVERLAY; PorterDuff.Mode.ADD -> BlendMode.PLUS
+            PorterDuff.Mode.DARKEN -> BlendMode.DARKEN; PorterDuff.Mode.LIGHTEN -> BlendMode.LIGHTEN
+            else -> null
+        }
         val smooth = paint == null || paint.isFilterBitmap
         // Downscaling a lot: shrink first so the result isn't grainy.
         val scale = kotlin.math.sqrt(kotlin.math.abs(full.v[0] * full.v[4] - full.v[1] * full.v[3]))
@@ -118,13 +128,14 @@ class Canvas(private var bmp: Bitmap? = null) {
                 var c = if (smooth) Resample.sample(sd, sw, sh, sx - 0.5f, sy - 0.5f) else sd[sy.toInt() * sw + sx.toInt()]
                 if (cm != null) c = applyMatrix(cm, c)
                 val i = y * dw + x
-                dd[i] = blend(c, dd[i], pa, clear)
+                dd[i] = if (mix != null) mixBlend(c, dd[i], pa, mix) else blend(c, dd[i], pa, clear)
             }
         }
     }
 
     /** Draws [src] warped through a grid of [meshW]×[meshH] cells ([verts] = destination points). */
     fun drawBitmapMesh(src: Bitmap, meshW: Int, meshH: Int, verts: FloatArray, vertOffset: Int, colors: IntArray?, colorOffset: Int, paint: Paint?) {
+        bmp?.let { it.gen++ }
         val out = bmp ?: return
         val cols = meshW + 1
         fun vx(i: Int) = verts[vertOffset + i * 2]
@@ -162,6 +173,7 @@ class Canvas(private var bmp: Bitmap? = null) {
 
     fun drawColor(c: Int) = drawColor(c, PorterDuff.Mode.SRC_OVER)
     fun drawColor(c: Int, mode: PorterDuff.Mode) {
+        bmp?.let { it.gen++ }
         val out = bmp ?: return
         if (mode == PorterDuff.Mode.CLEAR) { out.data.fill(0); return }
         if (mode == PorterDuff.Mode.SRC || (c ushr 24) == 255) { out.data.fill(c); return }
@@ -184,6 +196,7 @@ class Canvas(private var bmp: Bitmap? = null) {
     fun drawPoint(x: Float, y: Float, p: Paint) = drawCircle(x, y, maxOf(0.5f, p.strokeWidth / 2), Paint(p).apply { style = Paint.Style.FILL })
 
     fun drawText(text: String, x: Float, y: Float, p: Paint) {
+        bmp?.let { it.gen++ }
         val out = bmp ?: return
         withGraphics(out, p) { g ->
             g.font = font(p)
@@ -194,6 +207,7 @@ class Canvas(private var bmp: Bitmap? = null) {
     }
 
     private fun shape(s: java.awt.Shape, p: Paint) {
+        bmp?.let { it.gen++ }
         val out = bmp ?: return
         val blur = (p.maskFilter as? BlurMaskFilter)?.radius ?: 0f
         if (blur <= 0f) { withGraphics(out, p) { g -> paintShape(g, s, p) }; return }
@@ -262,10 +276,49 @@ class Canvas(private var bmp: Bitmap? = null) {
             val tf = p.typeface
             var style = tf?.style ?: 0
             if (p.isFakeBoldText) style = style or 1
+            tf?.awt?.let { f -> return f.deriveFont((if (style and 1 != 0 && !f.isBold) Font.BOLD else 0) or (if (style and 2 != 0) Font.ITALIC else 0), p.textSize) }
             return Font(tf?.family ?: "SansSerif", (if (style and 1 != 0) Font.BOLD else 0) or (if (style and 2 != 0) Font.ITALIC else 0), 12).deriveFont(p.textSize)
         }
 
         /** Source over destination (not premultiplied), with extra opacity [pa]. */
+        internal val MIXES = setOf(BlendMode.PLUS, BlendMode.SCREEN, BlendMode.OVERLAY, BlendMode.DARKEN, BlendMode.LIGHTEN,
+            BlendMode.SOFT_LIGHT, BlendMode.HARD_LIGHT, BlendMode.DIFFERENCE, BlendMode.EXCLUSION, BlendMode.MULTIPLY,
+            BlendMode.COLOR_DODGE, BlendMode.COLOR_BURN)
+
+        /** Separable blend modes (W3C compositing): result = mix of source and backdrop by [mode]. */
+        internal fun mixBlend(s: Int, d: Int, pa: Int, mode: BlendMode): Int {
+            var sa = ((s ushr 24) and 0xFF) / 255f
+            if (pa < 255) sa *= pa / 255f
+            if (sa <= 0f) return d
+            val da = ((d ushr 24) and 0xFF) / 255f
+            val oa = sa + da * (1f - sa)
+            if (oa <= 0f) return 0
+            fun b(cs: Float, cb: Float): Float = when (mode) {
+                BlendMode.MULTIPLY -> cs * cb
+                BlendMode.SCREEN -> cs + cb - cs * cb
+                BlendMode.OVERLAY -> if (cb <= 0.5f) 2f * cs * cb else 1f - 2f * (1f - cs) * (1f - cb)
+                BlendMode.HARD_LIGHT -> if (cs <= 0.5f) 2f * cs * cb else 1f - 2f * (1f - cs) * (1f - cb)
+                BlendMode.DARKEN -> minOf(cs, cb)
+                BlendMode.LIGHTEN -> maxOf(cs, cb)
+                BlendMode.DIFFERENCE -> kotlin.math.abs(cs - cb)
+                BlendMode.EXCLUSION -> cs + cb - 2f * cs * cb
+                BlendMode.PLUS -> minOf(1f, cs + cb)
+                BlendMode.COLOR_DODGE -> if (cb == 0f) 0f else if (cs >= 1f) 1f else minOf(1f, cb / (1f - cs))
+                BlendMode.COLOR_BURN -> if (cb >= 1f) 1f else if (cs <= 0f) 0f else 1f - minOf(1f, (1f - cb) / cs)
+                BlendMode.SOFT_LIGHT -> if (cs <= 0.5f) cb - (1f - 2f * cs) * cb * (1f - cb) else {
+                    val dd = if (cb <= 0.25f) ((16f * cb - 12f) * cb + 4f) * cb else kotlin.math.sqrt(cb)
+                    cb + (2f * cs - 1f) * (dd - cb)
+                }
+                else -> cs
+            }
+            fun ch(sh: Int): Int {
+                val cs = ((s shr sh) and 0xFF) / 255f; val cb = ((d shr sh) and 0xFF) / 255f
+                val co = (1f - da) * sa * cs + (1f - sa) * da * cb + sa * da * b(cs, cb)
+                return (co / oa * 255f + 0.5f).toInt().coerceIn(0, 255)
+            }
+            return ((oa * 255f + 0.5f).toInt().coerceIn(0, 255) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+        }
+
         internal fun blend(s: Int, d: Int, pa: Int, mode: PorterDuff.Mode?): Int {
             if (mode == PorterDuff.Mode.CLEAR) return 0
             if (mode == PorterDuff.Mode.SRC) return s

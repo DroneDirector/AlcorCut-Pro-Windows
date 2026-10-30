@@ -27,6 +27,9 @@ object GradeIO {
         if (bmp != null && o != 1) Exif.upright(bmp, o) else bmp
     } catch (_: Throwable) { null }
 
+    /** A video frame (the video engine comes with the Windows video editor). */
+    fun videoFrame(context: Context, uri: Uri, timeUs: Long, maxPx: Int): Bitmap? = null
+
     fun gradedName(prefix: String, ext: String) =
         prefix + "_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + "." + ext
 

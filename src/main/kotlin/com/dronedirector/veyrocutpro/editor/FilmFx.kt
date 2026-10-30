@@ -26,6 +26,12 @@ data class FilmLook(
     val deflicker: Float = 0f,
     /** Name of the preset last picked (display only). */
     val preset: String? = null,
+    /** Sky replacement: which sky ([VideoSky.NAMES], −1 = off), strength, the horizon (0..1 from the top), how much counts as sky, and light matching. */
+    val sky: Int = -1,
+    val skyAmount: Float = 1f,
+    val horizon: Float = 0.45f,
+    val skyTol: Float = 0.5f,
+    val skyLight: Float = 0.3f,
 ) {
     val isZero: Boolean get() = copy(preset = null) == FilmLook()
 }

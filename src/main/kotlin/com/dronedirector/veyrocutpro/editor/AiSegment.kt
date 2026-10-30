@@ -96,6 +96,16 @@ object AiSegment {
         return if (sw < N * N * 0.004f) null else sx / sw / (N - 1)
     }
 
+    /** Where the subject is: its box (x0, y0, x1, y1, 0..1 of the picture), or null when nothing stands out. */
+    fun subjectBox(context: Context, bmp: Bitmap): FloatArray? {
+        val g = subjectGrid(context, bmp) ?: return null
+        var sw = 0f; var x0 = N; var y0 = N; var x1 = -1; var y1 = -1
+        for (y in 0 until N) for (x in 0 until N) if (g[y * N + x] > 0.5f) { sw += 1f; x0 = minOf(x0, x); y0 = minOf(y0, y); x1 = maxOf(x1, x); y1 = maxOf(y1, y) }
+        if (sw < N * N * 0.004f || x1 < 0) return null
+        val d = (N - 1).toFloat()
+        return floatArrayOf(x0 / d, y0 / d, x1 / d, y1 / d)
+    }
+
     fun hasModel(context: Context) = AppData.has(context, ASSET)
 
     private fun jpeg(b: Bitmap): ByteArray = java.io.ByteArrayOutputStream().also { b.compress(Bitmap.CompressFormat.JPEG, 92, it) }.toByteArray()

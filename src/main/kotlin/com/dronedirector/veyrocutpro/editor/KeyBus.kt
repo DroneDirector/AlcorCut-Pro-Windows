@@ -8,5 +8,7 @@ import android.view.KeyEvent
  */
 object KeyBus {
     @Volatile var handler: ((KeyEvent) -> Boolean)? = null
-    fun dispatch(e: KeyEvent): Boolean = try { handler?.invoke(e) == true } catch (_: Throwable) { false }
+    /** While a shortcut key is being chosen, every key goes here first. */
+    @Volatile var capture: ((KeyEvent) -> Boolean)? = null
+    fun dispatch(e: KeyEvent): Boolean = try { capture?.invoke(e) == true || handler?.invoke(e) == true } catch (_: Throwable) { false }
 }

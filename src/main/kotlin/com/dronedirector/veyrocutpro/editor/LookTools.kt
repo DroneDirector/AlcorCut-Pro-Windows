@@ -18,7 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
+import com.dronedirector.veyrocutpro.ui.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import com.dronedirector.veyrocutpro.ui.Text
@@ -104,13 +104,14 @@ fun LutSection(g: ProGrade, onChange: (ProGrade) -> Unit) {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PillChip(text: String, selected: Boolean, accentText: Boolean = false, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    val view = androidx.compose.ui.platform.LocalView.current
     Text(
         text, color = if (selected) Color.Black else if (accentText) Pro.Amber else Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(if (selected) Pro.Amber else Color.White.copy(alpha = 0.08f))
+            .background(if (selected) Pro.Amber else com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.08f))
             .then(if (accentText) Modifier.border(1.dp, Pro.Amber.copy(alpha = 0.6f), RoundedCornerShape(50)) else Modifier)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick ?: { com.dronedirector.veyrocutpro.ui.HelpTip.show(text, view) })
             .padding(horizontal = 12.dp, vertical = 6.dp),
     )
 }

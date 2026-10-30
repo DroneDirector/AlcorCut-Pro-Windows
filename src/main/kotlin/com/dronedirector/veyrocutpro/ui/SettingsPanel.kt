@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,9 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Icon
 import com.dronedirector.veyrocutpro.ui.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -33,8 +35,23 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun SettingsGroup(key: String, title: String, summary: String, content: @Composable () -> Unit) {
     var open by androidx.compose.runtime.saveable.rememberSaveable(key) { mutableStateOf(false) }
+    val q = LocalSettingsQuery.current
+    if (q.isNotBlank()) {
+        // Searching: groups whose name, summary or rows match open by themselves; the rest are hidden.
+        val hit = androidx.compose.runtime.remember(q) { mutableStateOf(false) }
+        val show = settingsMatch(q, title, summary) || hit.value
+        if (show) Column(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(12.dp)).background(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.06f)).padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(title, color = Pro.Amber, fontSize = 15.sp)
+            Text(summary, color = Pro.Dim, fontSize = 12.sp, maxLines = 2)
+        }
+        Column(
+            if (show) Modifier.fillMaxWidth().padding(start = 6.dp, end = 2.dp, bottom = 6.dp) else Modifier.fillMaxWidth().height(0.dp).clipToBounds(),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) { androidx.compose.runtime.CompositionLocalProvider(LocalSettingsHit provides hit) { content() } }
+        return
+    }
     Row(
-        Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.06f))
+        Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(12.dp)).background(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.06f))
             .clickable { open = !open }.padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

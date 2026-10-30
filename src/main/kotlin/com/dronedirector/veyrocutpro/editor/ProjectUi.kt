@@ -1,5 +1,6 @@
 package com.dronedirector.veyrocutpro.editor
 
+import androidx.compose.foundation.combinedClickable
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,7 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
+import com.dronedirector.veyrocutpro.ui.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import com.dronedirector.veyrocutpro.ui.Text
@@ -56,10 +57,12 @@ import java.util.Locale
 
 /** LOAD / SAVE buttons that sit next to EXPORT. */
 @Composable
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 fun BarButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    val view = androidx.compose.ui.platform.LocalView.current
     Text(
         label, style = Pro.Value.copy(color = if (enabled) Pro.Amber else Pro.Dim, fontSize = 11.sp),
-        modifier = Modifier.padding(start = 4.dp).clip(RoundedCornerShape(50)).background(Ed.Raised).clickable(enabled = enabled, onClick = onClick)
+        modifier = Modifier.padding(start = 4.dp).clip(RoundedCornerShape(50)).background(Ed.Raised).combinedClickable(enabled = enabled, onClick = onClick, onLongClick = { com.dronedirector.veyrocutpro.ui.HelpTip.show(label, view) })
             .padding(horizontal = 9.dp, vertical = 7.dp),
     )
 }
@@ -163,7 +166,7 @@ fun ProjectNameDialog(
                     value = name, onValueChange = { name = it.take(60) }, singleLine = true,
                     label = { Text(fieldLabel) }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White, unfocusedTextColor = Color.White,
+                        focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg,
                         focusedBorderColor = Pro.Amber, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber,
                     ),
                 )
@@ -205,7 +208,7 @@ fun ProjectNameDialog(
 
 /** Saved projects on an editor's start page; tap to open, ✕ to delete (asks first). */
 @Composable
-fun SavedProjects(video: Boolean, onOpen: (String) -> Unit) {
+fun SavedProjects(video: Boolean, onOpen: (String) -> Unit, top: androidx.compose.ui.unit.Dp = 18.dp) {
     val context = LocalContext.current
     var version by remember { mutableIntStateOf(0) }
     val list by produceState(emptyList<ProjectEntry>(), version) { value = withContext(Dispatchers.IO) { ProjectStore.list(context, video) } }
@@ -221,20 +224,20 @@ fun SavedProjects(video: Boolean, onOpen: (String) -> Unit) {
         )
     }
     if (list.isEmpty()) return
-    Text("SAVED PROJECTS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(top = 18.dp, bottom = 6.dp))
-    Row(Modifier.fillMaxWidth().hintedScroll(horizontal = true), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Text("RECENT PROJECTS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(top = top, bottom = 6.dp))
+    Row(Modifier.fillMaxWidth().padding(bottom = 4.dp).hintedScroll(horizontal = true), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         list.forEach { p ->
             val thumb by produceState<ImageBitmap?>(null, p.thumb, p.savedAt) {
                 value = withContext(Dispatchers.IO) { p.thumb?.let { BitmapFactory.decodeFile(it.path)?.asImageBitmap() } }
             }
             Column(Modifier.width(150.dp).clip(RoundedCornerShape(10.dp)).background(Ed.Raised).clickable { onOpen(p.id) }) {
-                Box(Modifier.fillMaxWidth().height(84.dp).background(Color.Black)) {
+                com.dronedirector.veyrocutpro.ui.ForceDark { Box(Modifier.fillMaxWidth().height(84.dp).background(Color.Black)) {
                     thumb?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                     Box(
                         Modifier.align(Alignment.TopEnd).padding(4.dp).size(26.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)).clickable { confirm = p },
                         contentAlignment = Alignment.Center,
                     ) { Icon(Icons.Filled.Close, contentDescription = "Delete project", tint = Color.White, modifier = Modifier.size(16.dp)) }
-                }
+                } }
                 Column(Modifier.padding(8.dp)) {
                     Text(p.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(p.detail + " · " + SimpleDateFormat("d MMM HH:mm", Locale.getDefault()).format(Date(p.savedAt)), style = Pro.Label.copy(fontSize = 10.sp), maxLines = 1)

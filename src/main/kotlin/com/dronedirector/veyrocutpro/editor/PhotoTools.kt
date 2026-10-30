@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.filled.Brightness4
+import androidx.compose.material.icons.filled.Brightness7
 import androidx.compose.material.icons.filled.Gesture
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.Palette
@@ -40,7 +42,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.Icon
+import com.dronedirector.veyrocutpro.ui.Icon
 import com.dronedirector.veyrocutpro.ui.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -343,6 +345,9 @@ fun MasksPanel(
         SmallAction(Icons.Filled.Gradient, "Linear") { val m = PhotoMask(type = MaskType.LINEAR); onMasks(masks + m); ui.selected = m.id }
         SmallAction(Icons.Filled.RadioButtonUnchecked, "Radial") { val m = PhotoMask(type = MaskType.RADIAL); onMasks(masks + m); ui.selected = m.id }
         if (!video) SmallAction(Icons.Filled.Brush, "Brush") { val m = PhotoMask(type = MaskType.BRUSH); onMasks(masks + m); ui.selected = m.id }
+        // Dodge & burn: brushes that lighten / darken where you paint (exposure, adjustable below).
+        if (!video) SmallAction(Icons.Filled.Brightness7, "Dodge") { val m = PhotoMask(type = MaskType.BRUSH, grade = ProGrade(exposure = 0.35f, highlights = -0.1f), label = "Dodge (lighten)"); onMasks(masks + m); ui.selected = m.id }
+        if (!video) SmallAction(Icons.Filled.Brightness4, "Burn") { val m = PhotoMask(type = MaskType.BRUSH, grade = ProGrade(exposure = -0.35f, shadows = 0.05f), label = "Burn (darken)"); onMasks(masks + m); ui.selected = m.id }
         SmallAction(Icons.Filled.Palette, "Colour range") { val m = PhotoMask(type = MaskType.COLOR_RANGE); onMasks(masks + m); ui.selected = m.id }
         SmallAction(Icons.Filled.Contrast, "Brightness range") { val m = PhotoMask(type = MaskType.LUMA_RANGE); onMasks(masks + m); ui.selected = m.id }
         if (video) SmallAction(Icons.Filled.Gesture, "Shape (pen)") { val m = PhotoMask(type = MaskType.PEN, pts = PenMask.starter(), feather = 0.3f); onMasks(masks + m); ui.selected = m.id }
@@ -371,7 +376,7 @@ fun MasksPanel(
                 .clickable { ui.selected = m.id }.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("${i + 1}. ${m.type.label}" + (if (m.type == MaskType.PEOPLE) " · " + m.parts.orEmpty().joinToString(", ") { PeopleMask.PARTS.getOrElse(it) { "" } } else "") + if (m.invert) " (inverted)" else "", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text("${i + 1}. ${m.label ?: m.type.label}" + (if (m.type == MaskType.PEOPLE) " · " + m.parts.orEmpty().joinToString(", ") { PeopleMask.PARTS.getOrElse(it) { "" } } else "") + if (m.invert) " (inverted)" else "", color = Color.White, fontSize = 13.sp, modifier = Modifier.weight(1f))
             Icon(if (m.visible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, contentDescription = "Show", tint = Color.White,
                 modifier = Modifier.size(20.dp).clickable { onMasks(masks.map { if (it.id == m.id) it.copy(visible = !it.visible) else it }) })
             Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = Color.White,
@@ -602,6 +607,8 @@ fun savePhotoAs(context: Context, bmp0: Bitmap, format: Int, quality: Int, exifF
                 val dst = androidx.exifinterface.media.ExifInterface(tmp.path)
                 for (t in EXIF_KEEP) src.getAttribute(t)?.let { dst.setAttribute(t, it) }
                 if (!stripGps) for (t in EXIF_GPS) src.getAttribute(t)?.let { dst.setAttribute(t, it) }
+                // No location in the photo but geotagged from a GPS track in the Library: write that.
+                if (!stripGps && src.latLong == null) Geotag.placeFor(context, exifFrom)?.let { (la, lo) -> dst.setLatLong(la, lo) }
                 dst.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_SOFTWARE, "AlcorCut Pro")
                 dst.saveAttributes()
             }

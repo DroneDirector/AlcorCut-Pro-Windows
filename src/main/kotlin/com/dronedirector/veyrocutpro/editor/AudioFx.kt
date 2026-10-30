@@ -30,6 +30,10 @@ data class AudioFx(
     val bands: List<EqBand>? = null,
     /** De-esser (0..1): tames sharp "s" and "sh" sounds. */
     val deess: Float = 0f,
+    /** Pitch in semitones (−12..12), without changing the speed. */
+    val pitch: Float = 0f,
+    /** Voice effect: 0 none, 1 robot, 2 radio, 3 phone, 4 megaphone. */
+    val voiceFx: Int = 0,
 ) {
     val isNeutral get() = this == AudioFx() || this == AudioFx(limiter = false)
 }

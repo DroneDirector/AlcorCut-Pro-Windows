@@ -55,6 +55,14 @@ fun main(args: Array<String>) {
     com.dronedirector.veyrocutpro.camera.CaptureExtras.load(app)
     com.dronedirector.veyrocutpro.camera.SimpleMode.load(app)
     I18n.load(app)
+    com.dronedirector.veyrocutpro.ui.AppLog.init(app)
+    com.dronedirector.veyrocutpro.ui.CrashReport.install(app)
+    com.dronedirector.veyrocutpro.ui.SafeMode.started(app)
+    com.dronedirector.veyrocutpro.ui.OneHanded.load(app)
+    com.dronedirector.veyrocutpro.ui.Haptics.load(app)
+    com.dronedirector.veyrocutpro.editor.UserPresets.init(app)
+    // Ran fine for a while: no more "closed while starting".
+    Thread { Thread.sleep(25_000); com.dronedirector.veyrocutpro.ui.SafeMode.healthy(app) }.apply { isDaemon = true }.start()
     // A photo opened with the app ("Open with" in Windows).
     val opened = args.firstOrNull()?.let { File(it) }?.takeIf { it.isFile }?.let { Uri.fromFile(it) }
     application {
@@ -66,6 +74,21 @@ fun main(args: Array<String>) {
             onPreviewKeyEvent = { e -> handleKey(e) },
         ) {
             TaskbarProgress.window = window
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                com.dronedirector.veyrocutpro.ui.AppLog.i("Window drawn with " + com.dronedirector.veyrocutpro.ui.SystemInfo.drawingApi())
+            }
+            // Frame-rate check for testing (set ALCORCUT_FPS=1): frames per second and the slowest frame, once a second.
+            if (System.getenv("ALCORCUT_FPS") != null) androidx.compose.runtime.LaunchedEffect(Unit) {
+                var n = 0; var worst = 0L; var last = 0L; var start = 0L
+                while (true) {
+                    androidx.compose.runtime.withFrameNanos { t ->
+                        if (last > 0) worst = maxOf(worst, t - last)
+                        if (start == 0L) start = t
+                        last = t; n++
+                        if (t - start >= 1_000_000_000L) { println("FPS $n, slowest frame ${worst / 1_000_000} ms"); n = 0; worst = 0; start = t }
+                    }
+                }
+            }
             ProCamTheme {
                 BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
                     CompositionLocalProvider(LocalConfiguration provides Configuration(maxWidth.value.toInt(), maxHeight.value.toInt())) {
@@ -74,6 +97,11 @@ fun main(args: Array<String>) {
                         }
                     }
                     Toasts(Modifier.align(Alignment.BottomCenter))
+                    com.dronedirector.veyrocutpro.ui.CrashReportDialog()
+                    com.dronedirector.veyrocutpro.ui.SafeModeDialog {}
+                    if (!com.dronedirector.veyrocutpro.ui.SafeMode.offer) com.dronedirector.veyrocutpro.ui.WhatsNewDialog()
+                    com.dronedirector.veyrocutpro.ui.UndoBarHost()
+                    com.dronedirector.veyrocutpro.ui.HelpTipHost()
                 }
             }
         }
@@ -89,6 +117,13 @@ private fun Toasts(modifier: Modifier) {
                 modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(50)).background(Color(0xE6202226)).padding(horizontal = 18.dp, vertical = 10.dp))
         }
     }
+}
+
+/** A desktop key event as the phone's (same codes and modifier flags). */
+fun phoneKeyEvent(e: KeyEvent): android.view.KeyEvent {
+    val meta = (if (e.isCtrlPressed) android.view.KeyEvent.META_CTRL_ON else 0) or (if (e.isShiftPressed) android.view.KeyEvent.META_SHIFT_ON else 0) or
+        (if (e.isAltPressed) android.view.KeyEvent.META_ALT_ON else 0) or (if (e.isMetaPressed) android.view.KeyEvent.META_META_ON else 0)
+    return android.view.KeyEvent(if (e.type == KeyEventType.KeyDown) android.view.KeyEvent.ACTION_DOWN else android.view.KeyEvent.ACTION_UP, keyCode(e.key), meta)
 }
 
 /** Esc goes back; other keys go to the open editor's shortcuts (same codes as on the phone). */

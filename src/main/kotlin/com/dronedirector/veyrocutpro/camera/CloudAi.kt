@@ -203,6 +203,25 @@ object CloudAi {
         download(res.getJSONObject("audio").getString("url"))
     }
 
+    /**
+     * Voice / music separation (Demucs): [audio] split into vocals and the rest; the stems are saved as WAV files
+     * in [dir] and returned by name (vocals, drums, bass, other).
+     */
+    fun separate(c: Context, audio: File, mime: String, dir: File): Map<String, File> = job(c, "AI VOICE / MUSIC") {
+        val url = audio.inputStream().use { upload(c, it, audio.length(), audio.name, mime) }
+        val stems = org.json.JSONArray().put("vocals").put("drums").put("bass").put("other")
+        val res = run(c, "fal-ai/demucs", JSONObject().put("audio_url", url).put("model", "htdemucs").put("stems", stems).put("output_format", "wav"))
+        val out = LinkedHashMap<String, File>()
+        for (k in listOf("vocals", "drums", "bass", "other")) {
+            val u = res.optJSONObject(k)?.optString("url")?.takeIf { it.isNotBlank() } ?: continue
+            val f = File(dir, "$k.wav")
+            f.outputStream().use { downloadTo(u, it) }
+            out[k] = f
+        }
+        if (out["vocals"] == null) throw CloudError("The cloud job returned no voice track")
+        out
+    }
+
     /** Frame interpolation (RIFE): [frames] new frames between each pair, written to [out]. */
     fun interpolate(c: Context, source: File, out: File, frames: Int) = job(c, "AI SLOW MOTION") {
         val url = source.inputStream().use { upload(c, it, source.length(), "clip.mp4", "video/mp4") }

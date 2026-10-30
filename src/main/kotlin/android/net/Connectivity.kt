@@ -14,7 +14,17 @@ class NetworkCapabilities {
         const val TRANSPORT_ETHERNET = 3
     }
 }
+class LinkAddress(val address: java.net.InetAddress)
+class LinkProperties(val linkAddresses: List<LinkAddress>)
+
 class ConnectivityManager {
+    /** This PC's own addresses on its networks (for finding a NAS in the same subnet). */
+    fun getLinkProperties(n: Network?): LinkProperties? = try {
+        val list = java.net.NetworkInterface.getNetworkInterfaces().toList()
+            .filter { it.isUp && !it.isLoopback && !it.isVirtual }
+            .flatMap { i -> i.inetAddresses.toList() }.map { LinkAddress(it) }
+        LinkProperties(list)
+    } catch (_: Throwable) { null }
     val activeNetwork: Network? = Network()
     fun getNetworkCapabilities(n: Network?): NetworkCapabilities? = NetworkCapabilities()
     val isActiveNetworkMetered: Boolean get() = false

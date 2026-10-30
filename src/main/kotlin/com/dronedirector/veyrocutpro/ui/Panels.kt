@@ -21,7 +21,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -161,15 +160,12 @@ fun PanelsButton(
             )
         }
         if (tablet) {
-            DropdownMenu(
-                expanded = open, onDismissRequest = { open = false },
-                modifier = Modifier.width(320.dp).background(Pro.PanelSolid),
-            ) { content() }
+            ScrollMenu(open, onDismissRequest = { open = false }, width = 320.dp) { content() }
         } else if (open) {
             ModalBottomSheet(
                 onDismissRequest = { open = false },
                 sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                containerColor = Pro.PanelSolid,
+                containerColor = panelHere(),
             ) { Box(Modifier.navigationBarsPadding()) { content() } }
         }
     }
@@ -197,7 +193,7 @@ private fun PanelsMenu(
                         style = Pro.Label.copy(color = if (sel) Color.Black else Color.White, fontSize = 11.sp),
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .background(if (sel) Pro.Amber else Color.White.copy(alpha = 0.1f))
+                            .background(if (sel) Pro.Amber else fgHere().copy(alpha = 0.1f))
                             .clickable { panels.forEach { put(it, it.key in pr.on) }; pr.onApply?.invoke() }
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                     )

@@ -42,6 +42,11 @@ object MediaStore {
         }
     }
     object Video {
+        object VideoColumns {
+            const val DURATION = "duration"
+            const val RESOLUTION = "resolution"
+            const val DATE_TAKEN = "datetaken"
+        }
         object Media {
             val EXTERNAL_CONTENT_URI: Uri = Uri.parse("content://media/external/video/media")
             fun getContentUri(v: String): Uri = EXTERNAL_CONTENT_URI

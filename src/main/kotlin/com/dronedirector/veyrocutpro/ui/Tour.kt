@@ -78,7 +78,7 @@ internal fun TourCard(
 ) {
     var step by remember { mutableIntStateOf(0) }
     Column(
-        Modifier.padding(24.dp).widthIn(max = 420.dp).clip(RoundedCornerShape(18.dp)).background(Pro.PanelSolid).padding(22.dp),
+        Modifier.padding(24.dp).widthIn(max = 420.dp).clip(RoundedCornerShape(18.dp)).background(panelHere()).padding(22.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         AnimatedContent(step, label = "tour") { i ->

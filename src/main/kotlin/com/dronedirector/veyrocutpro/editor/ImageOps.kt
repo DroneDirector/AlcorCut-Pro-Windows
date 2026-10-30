@@ -31,6 +31,37 @@ data class Geometry(
 
 object ImageOps {
 
+    /**
+     * Framing by pinching the photo: the crop after the view was zoomed by [k] and moved by
+     * [txFrac] / [tyFrac] (shares of the shown picture's width / height). [srcW] × [srcH] is the
+     * photo before cropping. The crop never leaves the picture.
+     */
+    fun reframe(srcW: Int, srcH: Int, g: Geometry, k: Float, txFrac: Float, tyFrac: Float): Geometry {
+        val turns = ((g.rotate90 % 4) + 4) % 4
+        val rw = (if (turns % 2 == 1) srcH else srcW).toFloat()
+        val rh = (if (turns % 2 == 1) srcW else srcH).toFloat()
+        val imgAspect = rw / rh
+        val target = if (g.aspect > 0f) g.aspect else imgAspect
+        var cw0: Float; var ch0: Float
+        if (target > imgAspect) { cw0 = rw; ch0 = cw0 / target } else { ch0 = rh; cw0 = ch0 * target }
+        val a = Math.toRadians(abs(g.straighten).toDouble())
+        val cosA = cos(a).toFloat(); val sinA = sin(a).toFloat()
+        val fit = min(rw / (cw0 * cosA + ch0 * sinA), rh / (cw0 * sinA + ch0 * cosA)).coerceAtMost(1f)
+        cw0 *= fit; ch0 *= fit
+        fun pan(z: Float) = Pair((rw - cw0 / z) / 2f, (rh - ch0 / z) / 2f)
+        val (px, py) = pan(g.zoom)
+        // Centre of the crop now, then where the view's centre points after the gesture.
+        val cx = g.offsetX * px - txFrac / k * (cw0 / g.zoom)
+        val cy = g.offsetY * py - tyFrac / k * (ch0 / g.zoom)
+        val z = (g.zoom * k).coerceIn(1f, 8f)
+        val (nx, ny) = pan(z)
+        return g.copy(
+            zoom = z,
+            offsetX = if (nx > 0.5f) (cx / nx).coerceIn(-1f, 1f) else 0f,
+            offsetY = if (ny > 0.5f) (cy / ny).coerceIn(-1f, 1f) else 0f,
+        )
+    }
+
     /** Applies geometry: rotation, flip, straighten (auto-zoomed to avoid empty corners), crop. */
     fun geometry(src0: Bitmap, g: Geometry): Bitmap {
         if (g.isIdentity) return src0
@@ -348,7 +379,7 @@ object ImageOps {
         var b = src
         val srcW = src.width; val srcH = src.height
         if (!spots.isNullOrEmpty()) b = PhotoLocal.heal(b, spots)
-        if (retouch != null && retouch.liquify.isNotEmpty()) { val l = RetouchFx.liquify(b, retouch.liquify); if (b !== src && l !== b) b.recycle(); b = l }
+        if (retouch != null) { val st = retouch.allStrokes(); if (st.isNotEmpty()) { val l = RetouchFx.liquify(b, st); if (b !== src && l !== b) b.recycle(); b = l } }
         if (lens != null && !lens.isIdentity) { val l = PhotoLocal.lens(b, lens); if (b !== src && l !== b) b.recycle(); b = l }
         val g = geometry(b, geometry)
         if (b !== src && g !== b) b.recycle()
@@ -392,10 +423,16 @@ object ImageOps {
             } else Skies.preset(sky.preset, w, h)
             Skies.apply(px, w, h, wt, skyPx, sky)
         }
+        // Creative effects (Effects panel), after the colour and the sky.
+        if (retouch != null) {
+            RetouchFx.colourSplash(px, retouch)
+            RetouchFx.tiltShift(px, w, h, retouch)
+            RetouchFx.sunGlow(px, w, h, retouch)
+        }
         var hasAlpha = false
         if (bg != null && bg.active) placed[bg.maskFile]?.let { m ->
             val wt = PhotoLocal.weights(PhotoMask(type = MaskType.SUBJECT, maskFile = bg.maskFile), w, h, m)
-            PhotoLocal.background(px, w, h, wt, bg)
+            PhotoLocal.background(px, w, h, wt, bg, bg.imagePath?.let { aiMasks[it] })
             hasAlpha = bg.mode == 2
         }
         placed.values.forEach { it.recycle() }

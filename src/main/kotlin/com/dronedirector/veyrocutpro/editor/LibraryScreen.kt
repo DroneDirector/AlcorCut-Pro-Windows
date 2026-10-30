@@ -83,7 +83,7 @@ private val LIB_LABELS = listOf(0xFFFF3B30, 0xFFFFD60A, 0xFF34C759, 0xFF0A84FF, 
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy: (Uri) -> Unit) {
+fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy: (Uri) -> Unit, pickLabel: String? = null) {
     val context = LocalContext.current
     BackHandler(onBack = onBack)
     LaunchedEffect(Unit) { LibraryStore.load(context) }
@@ -103,14 +103,40 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
     var labelF by remember { mutableStateOf<Int?>(null) }
     var album by remember { mutableStateOf<String?>(null) }
     var smart by remember { mutableStateOf<SmartAlbum?>(null) }
+    // Calendar: the day / month / year picked there (null = all dates).
+    var dateF by remember { mutableStateOf<LongRange?>(null) }
+    var dateLabel by remember { mutableStateOf("") }
     var selecting by remember { mutableStateOf(false) }
     val picked = remember { mutableStateListOf<String>() }
     var detail by remember { mutableStateOf<LibPhoto?>(null) }
     var compare by remember { mutableStateOf<List<LibPhoto>?>(null) }
     var survey by remember { mutableStateOf<List<LibPhoto>?>(null) }
     var dialog by remember { mutableStateOf<String?>(null) }   // "album", "keywords", "newAlbum", "newSmart"
-    // Views: 0 grid, 1 stacks (bursts together), 2 people, 3 map.
+    // Views: 0 grid, 1 stacks (bursts together), 2 people, 3 map, 4 duplicates.
     var view by remember { mutableStateOf(0) }
+    var importing by remember { mutableStateOf(false) }
+    // Watched folders: checked every minute while the library is open.
+    var watchOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (withContext(Dispatchers.IO) { try { WatchFolders.check(context) } catch (_: Throwable) { 0 } } > 0) reload++
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
+    if (watchOpen) WatchFoldersDialog(onDismiss = { watchOpen = false }) { reload++ }
+    // Keyword tree: the keyword picked there (everything with it, or inside it).
+    var kwF by remember { mutableStateOf<String?>(null) }
+    // People: the person picked in the People view; "Find people" looks at the photos (AI, on the phone).
+    var personF by remember { mutableStateOf<Int?>(null) }
+    var findPeople by remember { mutableStateOf(0) }
+    LaunchedEffect(findPeople) {
+        if (findPeople == 0) return@LaunchedEffect
+        val err = withContext(Dispatchers.IO) { ModelStore.ensure(context, AiModel.FACES, { p -> Faces.status = "Downloading the face model… $p%" }, { stopIndex }) }
+        Faces.status = err
+        if (err != null) return@LaunchedEffect
+        withContext(Dispatchers.Default) { Faces.indexPhotos(context, all.map { it.uri.toString() to it.uri }) { stopIndex } }
+    }
+    val personKeys = remember(Faces.version, personF) { personF?.let { Faces.keysOf(it) } }
     var peopleF by remember { mutableStateOf(-1) }   // -1 all, 0 no people, 1 one person, 2 two, 3 groups
     var mapPick by remember { mutableStateOf<Set<String>?>(null) }
     val expanded = remember { mutableStateListOf<String>() }
@@ -118,6 +144,7 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
     LaunchedEffect(view, all) {
         if (all.isEmpty()) return@LaunchedEffect
         if (view == 2) withContext(Dispatchers.Default) { LibraryStore.indexFaces(context, all) { stopIndex } }
+        if (view == 4) withContext(Dispatchers.Default) { LibraryStore.indexDupes(context, all) { stopIndex } }
         if (view == 3) {
             if (Build.VERSION.SDK_INT >= 29 && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 try { locPerm.launch(Manifest.permission.ACCESS_MEDIA_LOCATION) } catch (_: Throwable) {}
@@ -136,23 +163,37 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
             (labelF == null || m.label == labelF) &&
             (view != 2 || peopleF == -1 || when (peopleF) { 0 -> m.faces == 0; 1 -> m.faces == 1; 2 -> m.faces == 2; else -> (m.faces ?: 0) >= 3 }) &&
             (mapPick == null || p.uri.toString() in mapPick!!) &&
-            LibraryStore.matches(p, text)
+            (dateF == null || p.date in dateF!!) &&
+            (kwF == null || Keywords.has(m.keywords, kwF!!)) &&
+            (personKeys == null || p.uri.toString() in personKeys) &&
+            (LibraryStore.matches(p, text) || Faces.nameMatches(p.uri.toString(), text))
     }
+    // Duplicates: each group of near-identical photos, the sharpest (kept) first.
+    val dupGroups = if (view == 4) LibraryStore.dupes(shown) else emptyList()
+    val dupKeep = dupGroups.map { it[0].uri.toString() }.toSet()
     // Stacks: bursts shown as one photo with a count, until tapped open.
-    val gridList: List<Pair<LibPhoto, Int>> = if (view != 1) shown.map { it to 0 } else LibraryStore.stacks(shown).flatMap { g ->
+    val gridList: List<Pair<LibPhoto, Int>> = if (view == 4) dupGroups.flatten().map { it to 0 } else if (view != 1) shown.map { it to 0 } else LibraryStore.stacks(shown).flatMap { g ->
         if (g.size == 1) listOf(g[0] to 0)
         else if (g[0].uri.toString() in expanded) g.mapIndexed { i, p -> p to (if (i == 0) -g.size else -1) }
         else listOf(g[0] to g.size)
     }
     val sel = all.filter { it.uri.toString() in picked }
+    var gpxFile by remember { mutableStateOf<Uri?>(null) }
+    val pickGpx = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u -> if (u != null) gpxFile = u }
 
     Column(Modifier.fillMaxSize().background(Ed.Bg).windowInsetsPadding(WindowInsets.displayCutout).padding(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TopIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back") { onBack() }
             Text("Library", color = Color.White, fontSize = 22.sp, modifier = Modifier.padding(start = 6.dp).weight(1f))
             LibraryStore.indexing?.let { (d, t) -> Text("AI ${d}/${t}", style = Pro.Label.copy(color = Pro.Dim, fontSize = 10.sp), modifier = Modifier.padding(end = 8.dp)) }
+            Text("IMPORT", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
+                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { importing = true }.padding(8.dp))
             Text(if (selecting) "DONE" else "SELECT", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
                 modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { selecting = !selecting; picked.clear() }.padding(8.dp))
+        }
+        if (importing) androidx.compose.ui.window.Dialog(onDismissRequest = { importing = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            ProImportScreen(video = false, onClose = { importing = false }) { reload++ }
         }
         if (!granted) {
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(10.dp)).background(Pro.Amber.copy(alpha = 0.12f)).clickable { ask.launch(perm) }.padding(12.dp)) {
@@ -162,7 +203,7 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
         OutlinedTextField(
             value = text, onValueChange = { text = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Search: dog, beach, sunset, a keyword or a file name…", color = Pro.Dim, fontSize = 13.sp) },
-            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, cursorColor = Pro.Amber),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, focusedBorderColor = Pro.Amber, unfocusedBorderColor = Pro.Line, cursorColor = Pro.Amber),
         )
         // Filters.
         Row(Modifier.fillMaxWidth().hintedScroll(horizontal = true).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -177,35 +218,63 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
             LibraryStore.albums.forEach { a -> PillChip("▣ $a", album == a, onLongClick = { LibraryStore.albums.remove(a); LibraryStore.save(context); if (album == a) album = null }) { album = a; smart = null } }
             LibraryStore.smart.forEach { s -> PillChip("⚙ ${s.name}", smart == s, onLongClick = { LibraryStore.smart.remove(s); LibraryStore.save(context); if (smart == s) smart = null }) { smart = s; album = null } }
             PillChip("+ Album", false, accentText = true) { dialog = "newAlbum" }
-            PillChip("+ Smart album", false, accentText = true) { dialog = "newSmart" }
+            PillChip("+ Smart collection", false, accentText = true) { dialog = "newSmart" }
+            PillChip("Client picks…", false, accentText = true) { dialog = "picks" }
+            PillChip("Watched folders…", false, accentText = true) { watchOpen = true }
         }
         Row(Modifier.fillMaxWidth().hintedScroll(horizontal = true).padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            listOf("Grid", "Stacks", "People", "Map").forEachIndexed { i, n -> PillChip(n, view == i) { view = i; if (i != 3) mapPick = null } }
+            listOf("Grid", "Stacks", "People", "Map", "Duplicates", "Calendar", "Keywords").forEachIndexed { i, n -> PillChip(n, view == i) { view = i; if (i != 3) mapPick = null } }
+            if (dateF != null) PillChip("📅 $dateLabel ✕", true) { dateF = null }
+            kwF?.let { k -> PillChip("🏷 ${Keywords.show(k)} ✕", true) { kwF = null } }
             if (view == 2) listOf("Everyone", "No people", "1 person", "2 people", "Groups").forEachIndexed { i, n -> PillChip(n, peopleF == i - 1) { peopleF = i - 1 } }
+            personF?.let { id -> if (view != 2) PillChip("👤 ${Faces.peopleList(1).firstOrNull { it.id == id }?.name?.ifBlank { null } ?: "Person"} ✕", true) { personF = null } }
             if (mapPick != null) PillChip("📍 ${mapPick!!.size} here ✕", true) { mapPick = null }
-            LibraryStore.scanning?.let { (d, t) -> Text(if (view == 3) "Reading locations $d / $t" else "Finding people $d / $t", style = Pro.Label.copy(color = Pro.Dim, fontSize = 10.sp)) }
+            LibraryStore.scanning?.let { (d, t) -> Text(if (view == 3) "Reading locations $d / $t" else if (view == 4) "Comparing photos $d / $t" else "Finding people $d / $t", style = Pro.Label.copy(color = Pro.Dim, fontSize = 10.sp)) }
         }
-        if (view == 2) Text("Groups photos by how many people are in them (faces found on the phone). It doesn't recognise who they are.", color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(bottom = 4.dp))
+        if (view == 2) {
+            PeopleRow(all.map { it.uri.toString() }.toSet(), personF, { personF = it }, { k -> Uri.parse(k) }, video = false) { findPeople++ }
+            Text("Find people (AI) recognises the same person across your photos (on the phone; the face model, ${AiModel.FACES.sizeMb} MB, is downloaded once). Tap a face to see their photos, hold it to give them a name — then search by name. The chips above group photos by how many people are in them.", color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(bottom = 4.dp))
+        }
+        if (view == 4) {
+            Text("Near-identical photos side by side; the sharpest of each group (✓ KEEP) comes first. Nothing is deleted — reject the extra copies, then hide or delete them in your gallery.", color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(bottom = 4.dp))
+            if (dupGroups.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                val extra = dupGroups.flatMap { it.drop(1) }.map { it.uri.toString() }
+                Text("${dupGroups.size} group(s) · ${extra.size} extra cop" + (if (extra.size == 1) "y" else "ies"), style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.align(Alignment.CenterVertically))
+                PillChip("✕ Reject the extra copies", false, accentText = true) { LibraryStore.update(context, extra) { it.copy(flag = -1) }; flagF = 0 }
+                PillChip("Select the extra copies", false) { selecting = true; picked.clear(); picked.addAll(extra) }
+            } else if (LibraryStore.scanning == null) Text("No duplicates found.", color = Pro.Dim, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
+        }
         if (selecting) Row(Modifier.fillMaxWidth().hintedScroll(horizontal = true).padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("${picked.size} selected", style = Pro.Label.copy(color = Color.White, fontSize = 11.sp))
             PillChip("Select all", false) { picked.clear(); picked.addAll(shown.map { it.uri.toString() }) }
             if (picked.isNotEmpty()) {
-                PillChip("✎ Edit", false, accentText = true) { onEdit(sel.map { it.uri }) }
+                PillChip(pickLabel ?: "✎ Edit", false, accentText = true) { onEdit(sel.map { it.uri }) }
                 if (picked.size == 2) PillChip("Compare", false) { compare = sel }
                 if (picked.size in 2..12) PillChip("Survey", false) { survey = sel }
                 (1..5).forEach { r -> PillChip("★$r", false) { LibraryStore.update(context, picked) { it.copy(rating = r) } } }
                 PillChip("⚑ Pick", false) { LibraryStore.update(context, picked) { it.copy(flag = 1) } }
                 PillChip("✕ Reject", false) { LibraryStore.update(context, picked) { it.copy(flag = -1) } }
                 PillChip("Unflag", false) { LibraryStore.update(context, picked) { it.copy(flag = 0) } }
+                LabelPicker(null) { c -> LibraryStore.update(context, picked) { it.copy(label = c) } }
+                PillChip("Metadata preset", false) { dialog = "meta" }
+                PillChip("Client proofing", false) { dialog = "proof" }
                 PillChip("+ Album", false) { dialog = "album" }
                 PillChip("Keywords", false) { dialog = "keywords" }
                 PillChip("Contact sheet PDF", false) { dialog = "sheet" }
                 PillChip("Print layout", false) { dialog = "print" }
+                PillChip("Photo book", false) { dialog = "book" }
                 if (picked.size in 2..9) PillChip("Collage", false) { dialog = "collage" }
+                if (picked.size >= 2) PillChip("▶ Slideshow video", false) { dialog = "slideshow" }
+                if (picked.size >= 10) PillChip("⏱ Time-lapse video", false) { dialog = "timelapse" }
+                PillChip("📍 Geotag from GPX", false) { try { pickGpx.launch(arrayOf("*/*")) } catch (_: Throwable) {} }
             }
         }
         Text("${shown.size} photo" + (if (shown.size == 1) "" else "s"), style = Pro.Label.copy(color = Pro.Dim, fontSize = 10.sp), modifier = Modifier.padding(bottom = 4.dp))
-        if (view == 3 && mapPick == null) LibraryMap(
+        if (view == 6) Box(Modifier.weight(1f).fillMaxWidth()) {
+            KeywordTree(Keywords.tree(all.map { LibraryStore.get(it.uri.toString()).keywords })) { k -> kwF = k; view = 0 }
+        } else if (view == 5) Box(Modifier.weight(1f).fillMaxWidth()) {
+            CalendarBrowser(shown.map { it.date }) { r, label -> dateF = r; dateLabel = label; view = 0 }
+        } else if (view == 3 && mapPick == null) LibraryMap(
             shown.mapNotNull { p -> LibraryStore.get(p.uri.toString()).place?.takeIf { it.size == 2 }?.let { p.uri.toString() to it } },
             onPick = { mapPick = it.toSet() },
             modifier = Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(8.dp)),
@@ -214,6 +283,7 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
                 val k = p.uri.toString()
                 val m = LibraryStore.get(k)
                 val on = k in picked
+                com.dronedirector.veyrocutpro.ui.ForceDark {
                 Box(
                     Modifier.aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(Ed.Raised)
                         .border(if (on) 2.dp else 0.dp, if (on) Pro.Amber else Color.Transparent, RoundedCornerShape(6.dp))
@@ -234,7 +304,8 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
                     if (stack > 1) Text("▣ $stack", style = Pro.Label.copy(color = Color.Black, fontSize = 10.sp), modifier = Modifier.align(Alignment.TopEnd).padding(3.dp).clip(RoundedCornerShape(4.dp)).background(Pro.Amber).padding(horizontal = 4.dp, vertical = 1.dp))
                     if (stack < -1) Text("▣ ${-stack} ▾", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp), modifier = Modifier.align(Alignment.TopEnd).padding(3.dp).clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.6f)).clickable { expanded.remove(k) }.padding(horizontal = 6.dp, vertical = 3.dp))
                     if (stack == -1) Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(6.dp).clip(CircleShape).background(Pro.Amber))
-                }
+                    if (view == 4 && k in dupKeep) Text("✓ KEEP", style = Pro.Label.copy(color = Color.Black, fontSize = 9.sp), modifier = Modifier.align(Alignment.TopEnd).padding(3.dp).clip(RoundedCornerShape(4.dp)).background(Pro.Amber).padding(horizontal = 4.dp, vertical = 1.dp))
+                } }
             }
         }
     }
@@ -277,6 +348,34 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
         dismissButton = { Text("CANCEL", style = Pro.Label.copy(color = Pro.Dim, fontSize = 12.sp), modifier = Modifier.clickable { dialog = null }.padding(10.dp)) },
     )
 
+    // ---- Slideshow video: the picked photos become a new video timeline
+    var ssSec by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(4) }
+    var ssTr by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
+    var ssZoom by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    if (dialog == "slideshow") androidx.compose.material3.AlertDialog(
+        onDismissRequest = { dialog = null },
+        containerColor = Ed.Raised,
+        title = { Text("Slideshow video", color = Color.White) },
+        text = {
+            Column {
+                Text("${sheetUris.size} photos become clips on a new video timeline, in this order. Add music, titles and more there, then export.", color = Pro.Dim, fontSize = 12.sp)
+                Text("Seconds per photo", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf(2, 3, 4, 5, 6, 8).forEach { n -> PillChip("$n", ssSec == n) { ssSec = n } } }
+                Text("Between photos", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.hintedScroll(horizontal = true)) {
+                    Slideshow.TRANSITIONS.forEachIndexed { i, t -> PillChip(if (t == TransitionType.NONE) "Straight cut" else t.label, ssTr == i) { ssTr = i } }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) { PillChip("Slow zoom", ssZoom) { ssZoom = true }; PillChip("Still", !ssZoom) { ssZoom = false } }
+            }
+        },
+        confirmButton = { Text("MAKE VIDEO", style = Pro.Label.copy(color = Pro.Amber, fontSize = 12.sp), modifier = Modifier.clickable {
+            dialog = null
+            Slideshow.request = Slideshow.Request(sheetUris, ssSec, Slideshow.TRANSITIONS[ssTr], ssZoom)
+            Slideshow.openVideoEditor?.invoke()
+        }.padding(10.dp)) },
+        dismissButton = { Text("CANCEL", style = Pro.Label.copy(color = Pro.Dim, fontSize = 12.sp), modifier = Modifier.clickable { dialog = null }.padding(10.dp)) },
+    )
+
     // ---- Print layout (PDF at exact print sizes)
     var prPaper by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
     var prLayout by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
@@ -316,6 +415,9 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
         dismissButton = { Text("CANCEL", style = Pro.Label.copy(color = Pro.Dim, fontSize = 12.sp), modifier = Modifier.clickable { dialog = null }.padding(10.dp)) },
     )
 
+    // ---- Geotag from a GPS track
+    gpxFile?.let { g -> GeotagDialog(g, sel) { msg -> gpxFile = null; if (msg != null) { android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show(); reload++ } } }
+
     // ---- Collage
     if (dialog == "collage") CollageDialog(sheetUris, onDone = { msg -> dialog = null; if (msg != null) android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show() })
 
@@ -328,15 +430,35 @@ fun LibraryScreen(onBack: () -> Unit, onEdit: (List<Uri>) -> Unit, onVirtualCopy
                 if (picked.isNotEmpty()) LibraryStore.update(context, picked) { it.copy(albums = (it.albums + name).distinct()) } else LibraryStore.save(context)
             }
         }
-        "keywords" -> NameDialog("Add keywords (comma separated)", emptyList()) { t ->
-            dialog = null
-            val kws = t?.split(',')?.map { it.trim().lowercase() }?.filter { it.isNotEmpty() }.orEmpty()
-            if (kws.isNotEmpty()) LibraryStore.update(context, picked) { it.copy(keywords = (it.keywords + kws).distinct()) }
+        "keywords" -> {
+            val pm = picked.map { LibraryStore.get(it) }
+            KeywordDialog(picked.size, Keywords.suggest(pm.map { it.ai ?: emptyList() }, all.map { LibraryStore.get(it.uri.toString()).keywords }, pm.flatMap { it.keywords }.toSet())) { kws ->
+                dialog = null
+                if (!kws.isNullOrEmpty()) LibraryStore.update(context, picked) { it.copy(keywords = (it.keywords + kws).distinct()) }
+            }
         }
-        "newSmart" -> NameDialog("Smart album name (uses the filters and search now set)", emptyList()) { name ->
+        "newSmart" -> SmartCollectionDialog(SmartAlbum("", minRating, if (flagF == 1) 1 else if (flagF == 2) 2 else 0, labelF, text), LibraryStore.PHOTO_TYPES, video = false) { s ->
             dialog = null
-            if (name != null) { LibraryStore.smart.add(SmartAlbum(name, minRating, if (flagF == 1) 1 else if (flagF == 2) 2 else 0, labelF, text)); LibraryStore.save(context) }
+            if (s != null) { LibraryStore.smart.add(s); LibraryStore.save(context); smart = s; album = null }
         }
+        "proof" -> ProofingDialog(sel) { dialog = null }
+        "book" -> PhotoBookDialog(sel.map { it.uri }) { dialog = null }
+        "timelapse" -> TimeLapseDialog(sel.sortedWith(compareBy({ it.date }, { it.name })).map { it.uri }) { u ->
+            dialog = null
+            if (u != null) {
+                android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("Time-lapse saved in Movies/AlcorCut Pro"), android.widget.Toast.LENGTH_LONG).show()
+                try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(u, "video/mp4").addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)) } catch (_: Throwable) {}
+            }
+        }
+        "picks" -> ClientPicksDialog(all) { n ->
+            dialog = null
+            if (n != null) { reload++; android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("Client picks: $n photo(s) marked"), android.widget.Toast.LENGTH_LONG).show(); if (n > 0) flagF = 1 }
+        }
+        "meta" -> MetaPresetDialog(picked.size, onApply = { p ->
+            dialog = null
+            LibraryStore.update(context, picked.toList()) { it.copy(meta = p.asEdit(), keywords = (it.keywords + p.keywordList).distinct()) }
+            android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("\"${p.name}\" applied to ${picked.size} photo(s) — written into them when you export"), android.widget.Toast.LENGTH_LONG).show()
+        }, onDismiss = { dialog = null })
     }
     detail?.let { p -> PhotoDetail(p, onClose = { detail = null }, onEdit = { detail = null; onEdit(listOf(p.uri)) }, onVirtualCopy = { detail = null; onVirtualCopy(p.uri) }) }
     compare?.let { list -> CompareView(list, onClose = { compare = null }) }
@@ -365,7 +487,7 @@ private fun NameDialog(title: String, existing: List<String>, onDone: (String?) 
         title = { Text(title, color = Color.White, fontSize = 16.sp) },
         text = {
             Column {
-                OutlinedTextField(t, { t = it.take(60) }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Pro.Amber, cursorColor = Pro.Amber))
+                OutlinedTextField(t, { t = it.take(60) }, singleLine = true, colors = OutlinedTextFieldDefaults.colors(focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, focusedBorderColor = Pro.Amber, cursorColor = Pro.Amber))
                 if (existing.isNotEmpty()) Row(Modifier.hintedScroll(horizontal = true).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     existing.forEach { e -> PillChip(e, false) { onDone(e) } }
                 }
@@ -403,7 +525,7 @@ private fun PhotoDetail(p: LibPhoto, onClose: () -> Unit, onEdit: () -> Unit, on
                 }
                 OutlinedTextField(kw, { kw = it; LibraryStore.update(context, listOf(k)) { mm -> mm.copy(keywords = it.split(',').map { s -> s.trim().lowercase() }.filter { s -> s.isNotEmpty() }) } },
                     label = { Text("Keywords (comma separated)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Pro.Amber, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber))
+                    colors = OutlinedTextFieldDefaults.colors(focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, focusedBorderColor = Pro.Amber, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber))
                 if (LibraryStore.albums.isNotEmpty()) Row(Modifier.hintedScroll(horizontal = true).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     LibraryStore.albums.forEach { a -> PillChip("▣ $a", a in m.albums) { LibraryStore.update(context, listOf(k)) { it.copy(albums = if (a in it.albums) it.albums - a else it.albums + a) } } }
                 }
@@ -427,7 +549,7 @@ private fun CompareView(list: List<LibPhoto>, onClose: () -> Unit) {
     var px by remember { mutableStateOf(0f) }
     var py by remember { mutableStateOf(0f) }
     androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).padding(8.dp)) {
+        com.dronedirector.veyrocutpro.ui.ForceDark { androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).padding(8.dp)) {
             val wide = maxWidth > maxHeight
             val pane = @Composable { p: LibPhoto, mod: Modifier ->
                 Column(mod.padding(4.dp)) {
@@ -452,7 +574,7 @@ private fun CompareView(list: List<LibPhoto>, onClose: () -> Unit) {
                 if (wide) Row(Modifier.fillMaxWidth().weight(1f)) { pane(list[0], Modifier.weight(1f)); pane(list[1], Modifier.weight(1f)) }
                 else Column(Modifier.fillMaxWidth().weight(1f)) { pane(list[0], Modifier.weight(1f)); pane(list[1], Modifier.weight(1f)) }
             }
-        }
+        } }
     }
 }
 

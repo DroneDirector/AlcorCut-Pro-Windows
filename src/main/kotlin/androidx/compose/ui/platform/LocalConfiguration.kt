@@ -12,7 +12,11 @@ class Configuration(
     @JvmField val densityDpi: Int = 160
     @JvmField val fontScale: Float = 1f
     @JvmField val uiMode: Int = 0x20
+    /** A PC always has a keyboard. */
+    @JvmField val keyboard: Int = KEYBOARD_QWERTY
     companion object {
+        const val KEYBOARD_NOKEYS = 1
+        const val KEYBOARD_QWERTY = 2
         const val ORIENTATION_PORTRAIT = 1
         const val ORIENTATION_LANDSCAPE = 2
         const val UI_MODE_NIGHT_YES = 0x20

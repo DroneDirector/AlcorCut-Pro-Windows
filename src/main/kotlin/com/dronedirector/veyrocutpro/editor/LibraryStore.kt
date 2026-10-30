@@ -27,6 +27,15 @@ data class LibMeta(
     val faces: Int? = null,
     /** Where it was taken: [lat, lon], empty = no location, null = not looked yet. */
     val place: List<Double>? = null,
+    /** Duplicates: a 64-bit picture fingerprint (difference hash) and how sharp the photo is; null = not looked yet. */
+    val dhash: Long? = null,
+    val sharp: Float? = null,
+    /** True when [place] came from a GPS track here (then exports get it too). */
+    val geotagged: Boolean? = null,
+    /** Your details from a metadata preset (written into exports when the photo's own edit has none). */
+    val meta: PhotoMetaEdit? = null,
+    /** A develop preset ([UserPreset] id) given on import: used when the photo is first opened. */
+    val develop: String? = null,
 )
 
 /** A saved search: shows every photo that matches. */
@@ -36,6 +45,11 @@ data class SmartAlbum(
     val flag: Int = 0,           // 0 any, 1 picks only, 2 not rejected
     val label: Int? = null,
     val text: String = "",
+    /** Keyword it must have; date rule ([SMART_DATES]); file type (photos: 1 RAW, 2 JPEG, 3 HEIC / other; videos: 1 4K and up, 2 HD and smaller, 3 drone, 4 vertical); has a location. */
+    val keyword: String? = null,
+    val dateMode: Int? = null,
+    val fileType: Int? = null,
+    val hasPlace: Boolean? = null,
 )
 
 /** A photo in the library grid. */
@@ -62,7 +76,8 @@ object LibraryStore {
         try {
             val f = file(c); if (!f.exists()) return
             val s: Saved = ProjectStore.gson.fromJson(f.readText(), Saved::class.java) ?: return
-            s.meta?.forEach { (k, v) -> meta[k] = LibMeta(v.rating, v.flag, v.label, v.keywords ?: emptyList(), v.albums ?: emptyList(), v.ai, v.faces, v.place) }
+
+            s.meta?.forEach { (k, v) -> meta[k] = v.copy(keywords = v.keywords ?: emptyList(), albums = v.albums ?: emptyList()) }
             s.albums?.let { albums.addAll(it) }
             s.smart?.let { smart.addAll(it) }
         } catch (_: Throwable) {}
@@ -108,8 +123,19 @@ object LibraryStore {
         if (s.flag == 1 && m.flag != 1) return false
         if (s.flag == 2 && m.flag == -1) return false
         if (s.label != null && m.label != s.label) return false
+        s.keyword?.takeIf { it.isNotBlank() }?.let { k -> if (m.keywords.none { it.equals(k.trim(), ignoreCase = true) }) return false }
+        smartDateRange(s.dateMode)?.let { r -> if (p.date !in r) return false }
+        when (s.fileType) {
+            1 -> if (!isRaw(p)) return false
+            2 -> if (!p.mime.contains("jpeg")) return false
+            3 -> if (isRaw(p) || p.mime.contains("jpeg")) return false
+        }
+        when (s.hasPlace) { true -> if (m.place.isNullOrEmpty()) return false; false -> if (!m.place.isNullOrEmpty()) return false; null -> {} }
         return matches(p, s.text)
     }
+
+    val PHOTO_TYPES = listOf("Any", "RAW", "JPEG", "HEIC & other")
+    fun isRaw(p: LibPhoto) = p.mime.contains("dng") || p.mime.contains("raw") || p.name.substringAfterLast('.').lowercase() in setOf("dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2")
 
     /**
      * Labels photos that have no AI labels yet (what's in them: beach, dog, food, sky…) so they
@@ -166,6 +192,65 @@ object LibraryStore {
                 if (n % 25 == 24) save(c)
             }
         } finally { try { det.close() } catch (_: Throwable) {}; scanning = null; save(c) }
+    }
+
+    /** Fingerprints every photo not looked at yet (for the Duplicates view). On the phone, own code. */
+    fun indexDupes(c: Context, list: List<LibPhoto>, stop: () -> Boolean) {
+        val todo = list.filter { meta[it.uri.toString()]?.dhash == null }
+        if (todo.isEmpty()) return
+        try {
+            scanning = 0 to todo.size
+            for ((n, p) in todo.withIndex()) {
+                if (stop()) break
+                val b = try { com.dronedirector.veyrocutpro.camera.GradeIO.decode(c, p.uri, 160) } catch (_: Throwable) { null }
+                if (b != null) {
+                    // Difference hash: 9×8 grey picture, each bit = is this pixel brighter than its right neighbour.
+                    val s9 = Bitmap.createScaledBitmap(b, 9, 8, true)
+                    var h = 0L
+                    for (y in 0 until 8) for (x in 0 until 8) {
+                        fun l(c: Int) = ((c shr 16) and 0xFF) * 3 + ((c shr 8) and 0xFF) * 6 + (c and 0xFF)
+                        if (l(s9.getPixel(x, y)) > l(s9.getPixel(x + 1, y))) h = h or (1L shl (y * 8 + x))
+                    }
+                    if (s9 !== b) s9.recycle()
+                    // Sharpness: variance of the Laplacian on the small picture.
+                    val w = b.width; val hh = b.height
+                    val px = IntArray(w * hh); b.getPixels(px, 0, w, 0, 0, w, hh)
+                    fun g(i: Int) = ((px[i] shr 16) and 0xFF) * 0.3f + ((px[i] shr 8) and 0xFF) * 0.59f + (px[i] and 0xFF) * 0.11f
+                    var sum = 0.0; var sq = 0.0; var cnt = 0
+                    for (y in 1 until hh - 1) for (x in 1 until w - 1) {
+                        val i = y * w + x
+                        val lap = 4 * g(i) - g(i - 1) - g(i + 1) - g(i - w) - g(i + w)
+                        sum += lap; sq += lap * lap; cnt++
+                    }
+                    val varL = if (cnt > 0) (sq / cnt - (sum / cnt) * (sum / cnt)).toFloat() else 0f
+                    b.recycle()
+                    val k = p.uri.toString(); meta[k] = get(k).copy(dhash = h, sharp = varL)
+                } else { val k = p.uri.toString(); meta[k] = get(k).copy(dhash = 0L, sharp = 0f) }
+                scanning = n + 1 to todo.size
+                if (n % 25 == 24) save(c)
+            }
+        } finally { scanning = null; save(c) }
+    }
+
+    /** Groups of near-identical photos (fingerprints at most [maxBits] apart), sharpest first in each group. */
+    fun dupes(list: List<LibPhoto>, maxBits: Int = 6): List<List<LibPhoto>> {
+        val withHash = list.mapNotNull { p -> get(p.uri.toString()).dhash?.takeIf { it != 0L }?.let { p to it } }
+        val used = HashSet<String>()
+        val out = ArrayList<List<LibPhoto>>()
+        for ((i, a) in withHash.withIndex()) {
+            if (a.first.uri.toString() in used) continue
+            val g = mutableListOf(a.first)
+            for (j in i + 1 until withHash.size) {
+                val b = withHash[j]
+                if (b.first.uri.toString() in used) continue
+                if (java.lang.Long.bitCount(a.second xor b.second) <= maxBits) g += b.first
+            }
+            if (g.size >= 2) {
+                g.forEach { used += it.uri.toString() }
+                out += g.sortedByDescending { (get(it.uri.toString()).sharp ?: 0f) + it.w.toFloat() * it.h / 1e9f }
+            }
+        }
+        return out
     }
 
     /** Reads where each photo was taken (GPS in its camera details) for the Map view. */

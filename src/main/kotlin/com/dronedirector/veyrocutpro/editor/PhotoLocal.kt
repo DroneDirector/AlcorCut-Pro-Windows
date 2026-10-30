@@ -59,6 +59,8 @@ data class PhotoMask(
     /** Detail inside the mask, −1..1: Texture (fine detail; minus smooths skin) and Clarity (mid-size contrast). */
     val texture: Float = 0f,
     val clarity: Float = 0f,
+    /** A name shown in the mask list (e.g. Dodge / Burn); null = the mask's kind. */
+    val label: String? = null,
     /** Noise reduction inside the mask, 0..1 (e.g. only the sky or the shadows). */
     val noise: Float = 0f,
     /** AI masks: Refine edge 0..1 — the edge follows fine detail such as hair and fur in the photo. */
@@ -66,11 +68,16 @@ data class PhotoMask(
 )
 
 /** A healed spot: centre and radius (share of the width) and where the patch is taken from (offset, same units). */
-data class Spot(val x: Float, val y: Float, val r: Float, val dx: Float, val dy: Float, val clone: Boolean = false)
+/** A healed spot; [eye] 1 = red-eye fix, 2 = pet-eye fix (then the spot isn't a patch copy). */
+data class Spot(val x: Float, val y: Float, val r: Float, val dx: Float, val dy: Float, val clone: Boolean = false, val eye: Int = 0)
 
 /** What to do with everything except the subject (needs an AI subject selection). */
-data class PhotoBackground(val mode: Int = 0, val blur: Float = 0.5f, val color: Int = 0xFFFFFFFF.toInt(), val maskFile: String? = null) {
-    /** 0 off, 1 blur (portrait), 2 remove (transparent), 3 colour. */
+data class PhotoBackground(
+    val mode: Int = 0, val blur: Float = 0.5f, val color: Int = 0xFFFFFFFF.toInt(), val maskFile: String? = null,
+    /** Double exposure: the second picture shown inside the subject, and how strongly. */
+    val imagePath: String? = null, val amount: Float = 0.85f,
+) {
+    /** 0 off, 1 blur (portrait), 2 remove (transparent), 3 colour, 4 double exposure, 5 pop out (darker background, glow round the subject). */
     val active get() = mode != 0 && maskFile != null
 }
 
@@ -388,6 +395,7 @@ object PhotoLocal {
         val N = 64
         val cr = FloatArray(N); val cg = FloatArray(N); val cb = FloatArray(N)
         for (s in spots) {
+            if (s.eye > 0) { fixEye(px, w, h, s); continue }
             val R = (s.r * w).coerceAtLeast(1.5f)
             val cx = s.x * w; val cy = s.y * h
             val ox = s.dx * w; val oy = s.dy * w
@@ -443,6 +451,68 @@ object PhotoLocal {
             for (y in y0..y1) System.arraycopy(out, (y - y0) * ow, px, y * w + x0, ow)
         }
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    /**
+     * Red eye: red pixels in the pupil get the red of their green / blue (dark, natural pupil). Pet eye: the bright
+     * green / yellow / white glow is darkened to a black pupil, keeping a tiny catchlight. Soft round edge.
+     */
+    private fun fixEye(px: IntArray, w: Int, h: Int, s: Spot) {
+        val R = (s.r * w).coerceAtLeast(2f)
+        val cx = s.x * w; val cy = s.y * h
+        val x0 = max(0, (cx - R).toInt()); val x1 = min(w - 1, (cx + R).toInt())
+        val y0 = max(0, (cy - R).toInt()); val y1 = min(h - 1, (cy + R).toInt())
+        for (y in y0..y1) for (x in x0..x1) {
+            val dx = x - cx; val dy = y - cy
+            val d = sqrt(dx * dx + dy * dy) / R
+            if (d >= 1f) continue
+            val t = 1f - ((d - 0.7f) / 0.3f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+            val c = px[y * w + x]
+            val r = ((c shr 16) and 0xFF).toFloat(); val g = ((c shr 8) and 0xFF).toFloat(); val b = (c and 0xFF).toFloat()
+            var nr = r; var ng = g; var nb = b
+            if (s.eye == 1) {
+                val gb = (g + b) / 2f
+                // How red: only clearly red pixels change, so the iris and skin round the pupil stay.
+                val red = ((r - gb) / (r + 1f) - 0.15f).coerceIn(0f, 0.5f) * 2f
+                if (red > 0f) { nr = r + (gb * 0.9f - r) * red; ng = g * (1f - 0.1f * red); nb = b * (1f - 0.1f * red) }
+            } else {
+                val v = maxOf(r, g, b) / 255f
+                if (v > 0.97f && d < 0.35f) continue      // the catchlight
+                val k = ((v - 0.25f) / 0.45f).coerceIn(0f, 1f)
+                if (k > 0f) { val l = (r * 0.3f + g * 0.59f + b * 0.11f) * 0.12f + 6f; nr = r + (l - r) * k; ng = g + (l - g) * k; nb = b + (l - b) * k }
+            }
+            val fr = (r + (nr - r) * t).toInt().coerceIn(0, 255); val fg = (g + (ng - g) * t).toInt().coerceIn(0, 255); val fb = (b + (nb - b) * t).toInt().coerceIn(0, 255)
+            px[y * w + x] = (c and 0xFF000000.toInt()) or (fr shl 16) or (fg shl 8) or fb
+        }
+    }
+
+    /** Eyes of every face in [b] (ML Kit landmarks), as red-eye spots where the pupil is clearly red. */
+    fun findRedEyes(b: Bitmap): List<Spot> {
+        val det = com.google.mlkit.vision.face.FaceDetection.getClient(
+            com.google.mlkit.vision.face.FaceDetectorOptions.Builder()
+                .setLandmarkMode(com.google.mlkit.vision.face.FaceDetectorOptions.LANDMARK_MODE_ALL)
+                .setPerformanceMode(com.google.mlkit.vision.face.FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE).build(),
+        )
+        val w = b.width; val h = b.height
+        return try {
+            val faces = com.google.android.gms.tasks.Tasks.await(det.process(com.google.mlkit.vision.common.InputImage.fromBitmap(b, 0)))
+            val out = ArrayList<Spot>()
+            for (f in faces) {
+                val r = f.boundingBox.width() * 0.075f
+                for (lm in listOf(com.google.mlkit.vision.face.FaceLandmark.LEFT_EYE, com.google.mlkit.vision.face.FaceLandmark.RIGHT_EYE)) {
+                    val p = f.getLandmark(lm)?.position ?: continue
+                    // Only eyes that really are red.
+                    var red = 0; var n = 0
+                    for (y in (p.y - r).toInt()..(p.y + r).toInt()) for (x in (p.x - r).toInt()..(p.x + r).toInt()) {
+                        if (x !in 0 until w || y !in 0 until h) continue
+                        val c = b.getPixel(x, y); val cr = (c shr 16) and 0xFF; val cg = (c shr 8) and 0xFF; val cb = c and 0xFF
+                        n++; if (cr > 80 && cr > (cg + cb) * 0.8f) red++
+                    }
+                    if (n > 0 && red > n * 0.08f) out += Spot(p.x / w, p.y / h, r * 1.1f / w, 0f, 0f, eye = 1)
+                }
+            }
+            out
+        } catch (_: Throwable) { emptyList() } finally { try { det.close() } catch (_: Throwable) {} }
     }
 
     // ------------------------------------------------------------------ masks
@@ -573,8 +643,59 @@ object PhotoLocal {
     }
 
     /** Portrait blur, transparent or coloured background outside the subject ([wt] = subject 0..1). */
-    fun background(px: IntArray, w: Int, h: Int, wt: FloatArray, bg: PhotoBackground) {
+    fun background(px: IntArray, w: Int, h: Int, wt: FloatArray, bg: PhotoBackground, second: Bitmap? = null) {
         when (bg.mode) {
+            5 -> {
+                // Pop out (thumbnails): the background darker and softer, a glow of [bg.color] round the subject.
+                val sw = max(1, w / 4); val sh = max(1, h / 4)
+                val full = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+                val small = Bitmap.createScaledBitmap(full, sw, sh, true); full.recycle()
+                val sp = IntArray(sw * sh); small.getPixels(sp, 0, sw, 0, 0, sw, sh); small.recycle()
+                val soft = boxBlur(sp, sw, sh, (max(sw, sh) * 0.006f).toInt().coerceAtLeast(1))
+                // The subject's shape, blurred wide: the glow.
+                val mw = IntArray(sw * sh)
+                for (y in 0 until sh) for (x in 0 until sw) {
+                    val v = (wt[(y * h / sh).coerceAtMost(h - 1) * w + (x * w / sw).coerceAtMost(w - 1)] * 255).toInt().coerceIn(0, 255)
+                    mw[y * sw + x] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+                }
+                val glow = boxBlur(mw, sw, sh, (max(sw, sh) * 0.025f * (0.5f + bg.blur)).toInt().coerceAtLeast(2))
+                fun up(a: IntArray): IntArray {
+                    val b = Bitmap.createScaledBitmap(Bitmap.createBitmap(a, sw, sh, Bitmap.Config.ARGB_8888), w, h, true)
+                    return IntArray(w * h).also { b.getPixels(it, 0, w, 0, 0, w, h); b.recycle() }
+                }
+                val bp = up(soft); val gp = up(glow)
+                val dim = 0.5f
+                for (i in px.indices) {
+                    val c = bp[i]
+                    val d = (0xFF shl 24) or ((((c shr 16) and 0xFF) * dim).toInt() shl 16) or ((((c shr 8) and 0xFF) * dim).toInt() shl 8) or ((c and 0xFF) * dim).toInt()
+                    val g = ((gp[i] and 0xFF) / 255f * (1f - wt[i]) * 2.2f).coerceIn(0f, 1f)
+                    px[i] = mixPx(mixPx(d, bg.color, g * 0.95f), px[i], wt[i])
+                }
+            }
+            4 -> {
+                // Double exposure: the second picture screened into the subject, the background a plain colour.
+                val sp = second?.let { s ->
+                    val sc = maxOf(w.toFloat() / s.width, h.toFloat() / s.height)
+                    val cw = (s.width * sc).toInt().coerceAtLeast(w); val ch = (s.height * sc).toInt().coerceAtLeast(h)
+                    val big = Bitmap.createScaledBitmap(s, cw, ch, true)
+                    val arr = IntArray(w * h); big.getPixels(arr, 0, w, (cw - w) / 2, (ch - h) / 2, w, h)
+                    if (big !== s) big.recycle()
+                    arr
+                }
+                val k = bg.amount.coerceIn(0f, 1f)
+                for (i in px.indices) {
+                    val a = px[i]
+                    val inner = if (sp == null) a else {
+                        val b = sp[i]
+                        fun scr(x: Int, y: Int) = 255 - (255 - x) * (255 - y) / 255
+                        val r = scr((a shr 16) and 0xFF, (b shr 16) and 0xFF); val g = scr((a shr 8) and 0xFF, (b shr 8) and 0xFF); val bl = scr(a and 0xFF, b and 0xFF)
+                        mixPx(a, (0xFF shl 24) or (r shl 16) or (g shl 8) or bl, k)
+                    }
+                    // The edge fades into the background with a little of the second picture in it.
+                    val outer = if (sp == null) bg.color else mixPx(bg.color, sp[i], 0.12f * k)
+                    px[i] = mixPx(outer, inner, wt[i])
+                }
+            }
             1 -> {
                 // Blur at a quarter size (fast, and a wide soft blur looks like a real lens).
                 val sw = max(1, w / 4); val sh = max(1, h / 4)

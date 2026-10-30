@@ -10,6 +10,13 @@ plugins {
 val appVersion = "1.0." + (System.getenv("BUILD_NUMBER") ?: "0")
 version = appVersion
 
+// The changelog goes into the app, for the "What's new" card after an update.
+val changelogDir: File = layout.buildDirectory.dir("generated/changelog").get().asFile.also { d ->
+    d.mkdirs()
+    file("CHANGELOG.md").takeIf { it.exists() }?.copyTo(File(d, "CHANGELOG.md"), overwrite = true)
+}
+sourceSets["main"].resources.srcDir(changelogDir)
+
 kotlin {
     jvmToolchain(21)
     compilerOptions {
@@ -25,6 +32,10 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     // AI models (MIT licence)
     implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
+    // Network storage (NAS / SMB shares): smbj (Apache 2.0) and smbj-rpc for the share list (BSD 3-Clause).
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.84")
+    implementation("com.hierynomus:smbj:0.13.0") { exclude(group = "org.bouncycastle", module = "bcprov-jdk18on") }
+    implementation("com.rapid7.client:dcerpc:0.12.13") { exclude(group = "org.bouncycastle", module = "bcprov-jdk18on") }
 }
 
 compose.desktop {

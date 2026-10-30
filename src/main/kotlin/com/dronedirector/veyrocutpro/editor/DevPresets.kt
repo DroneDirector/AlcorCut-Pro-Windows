@@ -44,6 +44,58 @@ import java.util.Locale
 /** A built-in preset: changes made on top of the current edit (so the amount slider can fade it in). */
 class BuiltInPreset(val name: String, val group: String, val grade: (ProGrade) -> ProGrade, val detail: (Detail) -> Detail = { it })
 
+/**
+ * Recommended presets: looks at the photo (what's in it, on the phone, and its light and colour) and picks
+ * up to six built-in looks that suit it, each with a short reason.
+ */
+object PresetAdvisor {
+    class Pick(val preset: BuiltInPreset, val why: String)
+
+    /** What's in a picture: AI labels (lower case), or empty if they can't be found. */
+    fun labels(b: Bitmap): List<String> = try {
+        val l = com.google.mlkit.vision.label.ImageLabeling.getClient(com.google.mlkit.vision.label.defaults.ImageLabelerOptions.Builder().setConfidenceThreshold(0.55f).build())
+        try {
+            com.google.android.gms.tasks.Tasks.await(l.process(com.google.mlkit.vision.common.InputImage.fromBitmap(b, 0)), 20, java.util.concurrent.TimeUnit.SECONDS)
+                .sortedByDescending { it.confidence }.take(10).map { it.text.lowercase() }
+        } finally { l.close() }
+    } catch (_: Throwable) { emptyList() }
+
+    fun suggest(b: Bitmap, labels: List<String>): List<Pick> {
+        // Light and colour: average brightness, colourfulness, warmth, how much is sky blue.
+        val s = Bitmap.createScaledBitmap(b, 64, 64, true)
+        val px = IntArray(64 * 64); s.getPixels(px, 0, 64, 0, 0, 64, 64); if (s !== b) s.recycle()
+        var lum = 0.0; var sat = 0.0; var warm = 0.0; var blue = 0; var lo = 1.0; var hi = 0.0
+        for (c in px) {
+            val r = ((c shr 16) and 255) / 255.0; val g = ((c shr 8) and 255) / 255.0; val bl = (c and 255) / 255.0
+            val y = 0.299 * r + 0.587 * g + 0.114 * bl
+            lum += y; sat += maxOf(r, g, bl) - minOf(r, g, bl); warm += r - bl
+            if (bl > r + 0.08 && bl > g - 0.02 && y > 0.35) blue++
+            lo = minOf(lo, y); hi = maxOf(hi, y)
+        }
+        val n = px.size.toDouble(); lum /= n; sat /= n; warm /= n
+        fun has(vararg w: String) = labels.any { l -> w.any { l.contains(it) } }
+        val out = LinkedHashMap<String, String>()
+        fun add(name: String, why: String) { if (name !in out && out.size < 6) out[name] = why }
+        val night = lum < 0.22
+        if (has("person", "selfie", "smile", "face", "skin", "hair", "beard", "child", "bride")) { add("Soft Skin", "people in the photo"); add("Warm Portrait", "people in the photo"); add("Clean Studio", "people in the photo") }
+        if (has("food", "dish", "cuisine", "dessert", "cake", "meal", "drink", "fruit", "vegetable")) { add("Fresh Food", "food"); add("Bright & Airy", "food") }
+        if (night) { add("Night City", "a dark, night-time photo"); add("Neon Night", "a dark, night-time photo"); add("Low Key", "a dark photo") }
+        if (has("sunset", "dusk", "sunrise") || (warm > 0.12 && lum < 0.55)) { add("Golden Hour", "warm, low sun"); add("Rooftop Sunset", "warm, low sun") }
+        if (has("beach", "sea", "ocean", "swimming", "coast", "lagoon", "boat")) { add("Tropical", "sea and beach"); add("Summer Pop", "sea and beach") }
+        if (has("sky", "cloud", "mountain", "lake", "landscape", "hill", "cliff", "river", "nature") || blue > n * 0.18) { add("Vivid Landscape", "a landscape"); add("Big Sky", "lots of sky") }
+        if (has("forest", "tree", "plant", "grass", "jungle", "leaf", "flower", "garden")) { add("Deep Greens", "greenery"); add("Autumn", "trees and plants") }
+        if (has("building", "skyscraper", "city", "architecture", "tower", "bridge", "street", "road")) { add("Architecture", "buildings"); add("Street Gritty", "a city scene"); add("Concrete", "buildings") }
+        if (has("snow", "ice", "winter", "glacier")) { add("Nordic", "snow and cold light"); add("Cold Thriller", "a cold scene") }
+        if (has("fog", "mist", "haze") || (hi - lo < 0.45 && !night)) add("Misty", "soft, low-contrast light")
+        if (sat < 0.12) add("B&W High Contrast", "few colours — strong in black & white")
+        // Always a film look and a black & white to choose from.
+        add("Portra", "a natural film look that suits most photos")
+        add("B&W Neutral", "a clean black & white version")
+        add("Kodak Warm", "a warm film look")
+        return out.mapNotNull { (k, why) -> DevPresets.all.firstOrNull { it.name == k }?.let { Pick(it, why) } }
+    }
+}
+
 object DevPresets {
     private fun hsl(vararg b: Pair<Int, HslBand>): List<HslBand> = List(8) { i -> b.firstOrNull { it.first == i }?.second ?: HslBand() }
     private fun w(h: Float, a: Float, l: Float = 0f) = Wheel(h, a, l)
@@ -304,6 +356,48 @@ fun BuiltInPresetSection(
     val small = remember(thumbSrc) {
         thumbSrc?.let { b -> val k = 96f / maxOf(b.width, b.height); if (k < 1f) Bitmap.createScaledBitmap(b, (b.width * k).toInt().coerceAtLeast(1), (b.height * k).toInt().coerceAtLeast(1), true) else b }
     }
+    // Recommended for this photo (the AI looks at what's in it, on the phone).
+    val rec by produceState<List<PresetAdvisor.Pick>?>(null, thumbSrc) {
+        val b = thumbSrc ?: return@produceState
+        value = withContext(Dispatchers.Default) {
+            try {
+                val k = 448f / maxOf(b.width, b.height)
+                val m = if (k < 1f) Bitmap.createScaledBitmap(b, (b.width * k).toInt().coerceAtLeast(1), (b.height * k).toInt().coerceAtLeast(1), true) else b
+                PresetAdvisor.suggest(m, PresetAdvisor.labels(m))
+            } catch (_: Throwable) { emptyList() }
+        }
+    }
+    @Composable fun Tile(pr: BuiltInPreset, sub: String? = null) {
+        val key = "${System.identityHashCode(small)}/${pr.group}/${pr.name}"
+        val thumb by produceState(PresetThumbs.cache.get(key), small, pr) {
+            if (value != null) return@produceState
+            value = small?.let { s -> withContext(Dispatchers.Default) { try { PresetThumbs.render(s, pr).also { PresetThumbs.cache.put(key, it) } } catch (_: Throwable) { null } } }
+        }
+        val on = chosen === pr
+        Column(
+            Modifier.width(76.dp).clip(RoundedCornerShape(8.dp)).border(if (on) 2.dp else 0.dp, if (on) Pro.Amber else Color.Transparent, RoundedCornerShape(8.dp))
+                .clickable {
+                    val b = if (chosen != null && before != null) before!! else grade to detail
+                    before = b; chosen = pr; amount = 1f
+                    onSet(pr.grade(b.first), pr.detail(b.second))
+                }.padding(3.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(Modifier.size(70.dp).clip(RoundedCornerShape(6.dp)).background(com.dronedirector.veyrocutpro.ui.AppTheme.pick(Color(0xFF1A1E26), Color(0xFFE2E4E8)))) {
+                thumb?.let { t -> val img = remember(t) { t.asImageBitmap() }; Image(img, null, Modifier.size(70.dp), contentScale = ContentScale.Crop) }
+            }
+            Text(pr.name, color = if (on) Pro.Amber else Color.White, fontSize = 10.sp, maxLines = 1)
+            if (sub != null) Text(sub, color = Pro.Dim, fontSize = 8.sp, maxLines = 2, lineHeight = 9.sp)
+        }
+    }
+    SectionTitle("RECOMMENDED FOR THIS PHOTO")
+    when {
+        thumbSrc == null -> Text("Open a photo to see looks that suit it.", color = Pro.Dim, fontSize = 11.sp)
+        rec == null -> Text("Looking at the photo…", color = Pro.Dim, fontSize = 11.sp)
+        else -> Row(Modifier.fillMaxWidth().hintedScroll(horizontal = true).padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            rec!!.forEach { p -> Tile(p.preset, p.why) }
+        }
+    }
     SectionTitle("PRESETS (${DevPresets.all.size})")
     val groups = DevPresets.all.map { it.group }.distinct()
     Chips(groups, groups.indexOf(group).coerceAtLeast(0)) { group = groups[it] }
@@ -324,7 +418,7 @@ fun BuiltInPresetSection(
                     }.padding(3.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box(Modifier.size(70.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xFF1A1E26))) {
+                Box(Modifier.size(70.dp).clip(RoundedCornerShape(6.dp)).background(com.dronedirector.veyrocutpro.ui.AppTheme.pick(Color(0xFF1A1E26), Color(0xFFE2E4E8)))) {
                     thumb?.let { t -> val img = remember(t) { t.asImageBitmap() }; Image(img, null, Modifier.size(70.dp), contentScale = ContentScale.Crop) }
                 }
                 Text(pr.name, color = if (on) Pro.Amber else Color.White, fontSize = 10.sp, maxLines = 1)

@@ -126,7 +126,7 @@ fun RestorePreviousSettings() {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(top = 18.dp)) {
         Text("Reinstalled the app?", color = Pro.Dim, fontSize = 12.sp)
         Text("RESTORE MY SETTINGS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 12.sp),
-            modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = 0.06f))
+            modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(50)).background(fgHere().copy(alpha = 0.06f))
                 .clickable { pick.launch(arrayOf("*/*")) }.padding(horizontal = 16.dp, vertical = 9.dp))
         Text("Pick ${KeepSettings.FILE} in ${KeepSettings.FOLDER}.", color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
         msg?.let { Text(it, color = Pro.Amber, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }

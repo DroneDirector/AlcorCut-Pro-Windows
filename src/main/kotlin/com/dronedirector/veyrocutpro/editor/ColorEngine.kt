@@ -53,6 +53,38 @@ data class Wheel(val hue: Float = 0f, val amount: Float = 0f, val luma: Float = 
 /** One colour of the HSL mixer. */
 data class HslBand(val hue: Float = 0f, val sat: Float = 0f, val lum: Float = 0f)
 
+/**
+ * Hue curves: 8 points each (−1..1, 0 = no change). The hue curves are placed every 45° round the colour
+ * wheel (red, orange, yellow, green, aqua, blue, purple, magenta) and wrap round; brightness vs saturation
+ * runs from black to white.
+ */
+data class HueCurves(
+    val hueHue: List<Float> = List(8) { 0f },
+    val hueSat: List<Float> = List(8) { 0f },
+    val hueLum: List<Float> = List(8) { 0f },
+    val lumSat: List<Float> = List(8) { 0f },
+) {
+    val isZero: Boolean get() = (hueHue + hueSat + hueLum + lumSat).all { it == 0f }
+
+    companion object {
+        private fun ease(t: Float) = t * t * (3f - 2f * t)
+        /** The curve at hue [h] (degrees). */
+        fun atHue(p: List<Float>, h: Float): Float {
+            if (p.size < 8) return 0f
+            val x = (((h % 360f) + 360f) % 360f) / 45f
+            val i = x.toInt() % 8; val t = x - x.toInt()
+            return p[i] + (p[(i + 1) % 8] - p[i]) * ease(t)
+        }
+        /** The curve at brightness [l] (0..1). */
+        fun atLum(p: List<Float>, l: Float): Float {
+            if (p.size < 8) return 0f
+            val x = l.coerceIn(0f, 1f) * 7f
+            val i = x.toInt().coerceAtMost(6); val t = x - i
+            return p[i] + (p[i + 1] - p[i]) * ease(t)
+        }
+    }
+}
+
 val HSL_CENTERS = floatArrayOf(0f, 30f, 60f, 120f, 180f, 225f, 275f, 320f)
 val HSL_NAMES = listOf("Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta")
 
@@ -111,6 +143,8 @@ data class ProGrade(
     val calib: Calibration? = null,
     /** Colour chart calibration: a 3 × 3 matrix (linear light, row by row) measured from a photographed 24-patch chart. */
     val chart: List<Float>? = null,
+    /** Hue curves: hue vs hue / saturation / brightness and brightness vs saturation. */
+    val hueCurves: HueCurves? = null,
 ) {
     val isIdentity: Boolean get() = this == ProGrade()
 
@@ -240,6 +274,21 @@ data class ProGrade(
             if (dl != 0f) { val m = dl * 0.3f; r += m; g += m; b += m }
         }
 
+        // 7c. Hue curves.
+        hueCurves?.takeIf { !it.isZero }?.let { hc ->
+            val hsv = FloatArray(3)
+            android.graphics.Color.RGBToHSV((r.coerceIn(0f, 1f) * 255).toInt(), (g.coerceIn(0f, 1f) * 255).toInt(), (b.coerceIn(0f, 1f) * 255).toInt(), hsv)
+            val satW = hsv[1].coerceIn(0f, 1f)
+            val dh = HueCurves.atHue(hc.hueHue, hsv[0]) * 60f * satW
+            val ds = (1f + HueCurves.atHue(hc.hueSat, hsv[0]) * satW) * (1f + HueCurves.atLum(hc.lumSat, luma(r, g, b).coerceIn(0f, 1f)))
+            val dl = HueCurves.atHue(hc.hueLum, hsv[0]) * satW
+            if (dh != 0f || ds != 1f) {
+                val col = android.graphics.Color.HSVToColor(floatArrayOf((((hsv[0] + dh) % 360f) + 360f) % 360f, (hsv[1] * ds).coerceIn(0f, 1f), hsv[2]))
+                r = ((col shr 16) and 0xFF) / 255f; g = ((col shr 8) and 0xFF) / 255f; b = (col and 0xFF) / 255f
+            }
+            if (dl != 0f) { val m = dl * 0.3f; r += m; g += m; b += m }
+        }
+
         // 8. Saturation and vibrance.
         l = luma(r, g, b)
         val sat = max(r, max(g, b)) - min(r, min(g, b))
@@ -349,8 +398,8 @@ fun hueRgb(h: Float): Triple<Float, Float, Float> {
 data class Detail(
     val sharpen: Float = 0f,    // 0..1
     val denoise: Float = 0f,    // 0..1
-    val clarity: Float = 0f,    // -1..1 (photo only)
-    val texture: Float = 0f,    // -1..1 (photo only)
+    val clarity: Float = 0f,    // -1..1
+    val texture: Float = 0f,    // -1..1
     val vignette: Float = 0f,   // -1..1 (negative darkens)
     val grain: Float = 0f,      // 0..1
     /** Image detail / local contrast for video (-1..1). */
@@ -387,7 +436,7 @@ data class Detail(
     val vigFeather get() = 0.5f + vignetteFeather
     val isZero get() = this == Detail()
     /** Parts the video GPU effect handles. */
-    val needsVideoPass get() = sharpen != 0f || denoise != 0f || vignette != 0f || grain != 0f || localDetail != 0f || fx != VideoFx.NONE
+    val needsVideoPass get() = sharpen != 0f || denoise != 0f || clarity != 0f || texture != 0f || vignette != 0f || grain != 0f || localDetail != 0f || fx != VideoFx.NONE
 }
 
 enum class VideoFx(val label: String) {

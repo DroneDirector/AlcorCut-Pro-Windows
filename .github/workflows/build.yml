@@ -4,6 +4,11 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the installer as a release
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -43,7 +48,7 @@ jobs:
           name: AlcorCutPro-Windows-1.0.${{ github.run_number }}
           path: dist/*
       - name: Publish release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}

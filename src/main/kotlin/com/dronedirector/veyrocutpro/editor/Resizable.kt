@@ -81,7 +81,7 @@ fun ResizeHandle(horizontalBar: Boolean, onDrag: (deltaDp: Float) -> Unit, onEnd
             .pointerInput(Unit) { detectTapGestures(onDoubleTap = { reset(); haptic.performHapticFeedback(HapticFeedbackType.LongPress) }) },
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val line = if (active) accent else Color.White.copy(alpha = 0.10f)
+            val line = if (active) accent else com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.10f)
             val gripLen = 36.dp.toPx(); val gripW = 5.dp.toPx()
             if (horizontalBar) {
                 drawLine(line, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), if (active) 2f else 1f)

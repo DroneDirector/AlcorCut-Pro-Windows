@@ -49,7 +49,7 @@ fun CloudAiSettings(variant: GuideVariant) {
     Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             if (CloudAi.hasKey) "KEY SAVED ✓  · CHANGE" else "ADD YOUR FAL.AI KEY", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp),
-            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.08f)).clickable { showKey = !showKey }.padding(8.dp),
+            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.08f)).clickable { showKey = !showKey }.padding(8.dp),
         )
         Text(
             "HOW TO ADD A KEY", style = Pro.Label.copy(color = Pro.Dim, fontSize = 10.sp),
@@ -61,7 +61,7 @@ fun CloudAiSettings(variant: GuideVariant) {
             value = keyText, onValueChange = { keyText = it.trim() }, singleLine = true,
             label = { Text("fal.ai API key") }, visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White, focusedBorderColor = Pro.Amber, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber),
+            colors = OutlinedTextFieldDefaults.colors(focusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, unfocusedTextColor = com.dronedirector.veyrocutpro.ui.Pro.Fg, focusedBorderColor = Pro.Amber, focusedLabelColor = Pro.Amber, cursorColor = Pro.Amber),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("SAVE KEY", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp),
@@ -104,7 +104,7 @@ private fun CloudChips(title: String, options: List<String>, selected: Int, onSe
             val sel = i == selected
             Text(
                 o, color = if (sel) Color.Black else Color.White, fontSize = 12.sp,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (sel) Pro.Amber else Color.White.copy(alpha = 0.08f)).clickable { onSelect(i) }.padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (sel) Pro.Amber else com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.08f)).clickable { onSelect(i) }.padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
     }
@@ -118,6 +118,6 @@ fun GuideButton(variant: GuideVariant) {
     Text(
         "?  " + variant.title.uppercase(), style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
         modifier = Modifier.padding(top = 14.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(Color.White.copy(alpha = 0.06f)).clickable { open = true }.padding(12.dp),
+            .background(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.06f)).clickable { open = true }.padding(12.dp),
     )
 }

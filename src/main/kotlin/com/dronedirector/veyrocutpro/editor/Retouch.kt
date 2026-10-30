@@ -46,14 +46,125 @@ data class Retouch(
     val warmth: Float = 0f,
     val softness: Float = 0.5f,
     val depthFile: String? = null,
+    /** Colour splash: the hue kept in colour (null = off), how wide a range of hues, and how strongly the rest turns grey. */
+    val splashHue: Float? = null,
+    val splashRange: Float = 30f,
+    val splashAmount: Float = 1f,
+    /** Tilt-shift: the sharp band's middle (0..1 from the top; null = off), its height, the blur and a colour boost. */
+    val tiltCenter: Float? = null,
+    val tiltWidth: Float = 0.18f,
+    val tiltBlur: Float = 0.6f,
+    val tiltSat: Float = 0.25f,
+    /** Sun glow: where the sun is (null = off), its size and strength, and rays. */
+    val glowX: Float? = null,
+    val glowY: Float = 0.25f,
+    val glowSize: Float = 0.35f,
+    val glowStrength: Float = 0.6f,
+    val glowRays: Float = 0.5f,
+    /** Face-aware liquify: the faces found and the sliders. */
+    val face: FaceShape? = null,
 ) {
+    /** The liquify brush strokes plus the face sliders' strokes. */
+    fun allStrokes(): List<LiqStroke> = if (face?.active == true) face.strokes() + liquify else liquify
+    val creativeOn get() = splashHue != null || tiltCenter != null || glowX != null
     val fsOn get() = fsSmooth > 0f || fsTexture != 1f
     val relightOn get() = depthFile != null && (light > 0f || shadow > 0f)
-    val isIdentity get() = liquify.isEmpty() && !fsOn && !relightOn
+    val isIdentity get() = liquify.isEmpty() && face?.active != true && !fsOn && !relightOn && !creativeOn
     fun files() = listOfNotNull(if (fsOn && fsArea != 0) fsMaskFile else null, if (relightOn) depthFile else null)
 }
 
 object RetouchFx {
+    // ---------------- Creative effects (Effects panel): colour splash, tilt-shift, sun glow
+
+    fun colourSplash(px: IntArray, r: Retouch) {
+        val keep = r.splashHue ?: return
+        val hsv = FloatArray(3)
+        for (i in px.indices) {
+            val c = px[i]
+            android.graphics.Color.colorToHSV(c, hsv)
+            var d = kotlin.math.abs(hsv[0] - keep); if (d > 180f) d = 360f - d
+            // Kept: near the hue and colourful enough; soft edge so the change isn't hard.
+            val k = (1f - ((d - r.splashRange) / 15f).coerceIn(0f, 1f)) * (hsv[1] * 3f).coerceIn(0f, 1f)
+            val grey = 1f - k
+            if (grey <= 0f) continue
+            val rr = (c shr 16) and 0xFF; val gg = (c shr 8) and 0xFF; val bb = c and 0xFF
+            val l = (rr * 0.299f + gg * 0.587f + bb * 0.114f)
+            val a = grey * r.splashAmount
+            px[i] = (c and 0xFF000000.toInt()) or ((rr + (l - rr) * a).toInt().coerceIn(0, 255) shl 16) or ((gg + (l - gg) * a).toInt().coerceIn(0, 255) shl 8) or (bb + (l - bb) * a).toInt().coerceIn(0, 255)
+        }
+    }
+
+    fun tiltShift(px: IntArray, w: Int, h: Int, r: Retouch) {
+        val mid = r.tiltCenter ?: return
+        // A blurred copy (box blur, three passes ≈ Gaussian), mixed in away from the sharp band.
+        val rad = (maxOf(w, h) * 0.012f * r.tiltBlur).toInt().coerceAtLeast(1)
+        val blurred = px.copyOf()
+        repeat(3) { boxBlur(blurred, w, h, rad) }
+        val half = r.tiltWidth / 2f
+        val sat = 1f + r.tiltSat
+        for (y in 0 until h) {
+            val d = kotlin.math.abs(y.toFloat() / h - mid) - half
+            val k = (d / 0.15f).coerceIn(0f, 1f).let { it * it * (3 - 2 * it) }
+            for (x in 0 until w) {
+                val i = y * w + x
+                val a = px[i]; val b = blurred[i]
+                var rr = ((a shr 16 and 0xFF) + ((b shr 16 and 0xFF) - (a shr 16 and 0xFF)) * k)
+                var gg = ((a shr 8 and 0xFF) + ((b shr 8 and 0xFF) - (a shr 8 and 0xFF)) * k)
+                var bb = ((a and 0xFF) + ((b and 0xFF) - (a and 0xFF)) * k)
+                // A little extra colour, like a miniature model.
+                val l = rr * 0.299f + gg * 0.587f + bb * 0.114f
+                rr = l + (rr - l) * sat; gg = l + (gg - l) * sat; bb = l + (bb - l) * sat
+                px[i] = (a and 0xFF000000.toInt()) or (rr.toInt().coerceIn(0, 255) shl 16) or (gg.toInt().coerceIn(0, 255) shl 8) or bb.toInt().coerceIn(0, 255)
+            }
+        }
+    }
+
+    private fun boxBlur(p: IntArray, w: Int, h: Int, r: Int) {
+        val tmp = IntArray(p.size)
+        val n = 2 * r + 1
+        for (y in 0 until h) {
+            var sr = 0; var sg = 0; var sb = 0
+            for (k in -r..r) { val c = p[y * w + k.coerceIn(0, w - 1)]; sr += c shr 16 and 0xFF; sg += c shr 8 and 0xFF; sb += c and 0xFF }
+            for (x in 0 until w) {
+                tmp[y * w + x] = (0xFF shl 24) or ((sr / n) shl 16) or ((sg / n) shl 8) or (sb / n)
+                val o = p[y * w + (x - r).coerceIn(0, w - 1)]; val ni = p[y * w + (x + r + 1).coerceIn(0, w - 1)]
+                sr += (ni shr 16 and 0xFF) - (o shr 16 and 0xFF); sg += (ni shr 8 and 0xFF) - (o shr 8 and 0xFF); sb += (ni and 0xFF) - (o and 0xFF)
+            }
+        }
+        for (x in 0 until w) {
+            var sr = 0; var sg = 0; var sb = 0
+            for (k in -r..r) { val c = tmp[k.coerceIn(0, h - 1) * w + x]; sr += c shr 16 and 0xFF; sg += c shr 8 and 0xFF; sb += c and 0xFF }
+            for (y in 0 until h) {
+                val a = p[y * w + x] and 0xFF000000.toInt()
+                p[y * w + x] = a or ((sr / n) shl 16) or ((sg / n) shl 8) or (sb / n)
+                val o = tmp[(y - r).coerceIn(0, h - 1) * w + x]; val ni = tmp[(y + r + 1).coerceIn(0, h - 1) * w + x]
+                sr += (ni shr 16 and 0xFF) - (o shr 16 and 0xFF); sg += (ni shr 8 and 0xFF) - (o shr 8 and 0xFF); sb += (ni and 0xFF) - (o and 0xFF)
+            }
+        }
+    }
+
+    fun sunGlow(px: IntArray, w: Int, h: Int, r: Retouch) {
+        val gx = (r.glowX ?: return) * w; val gy = r.glowY * h
+        val size = maxOf(w, h) * r.glowSize
+        val st = r.glowStrength
+        for (y in 0 until h) for (x in 0 until w) {
+            val dx = x - gx; val dy = y - gy
+            val d = kotlin.math.sqrt(dx * dx + dy * dy) / size
+            var glow = kotlin.math.exp(-d * d * 3f) * st + kotlin.math.exp(-d * d * 40f) * st * 0.8f
+            if (r.glowRays > 0f) {
+                // Soft rays: brightness along a few angles, fading with distance.
+                val a = kotlin.math.atan2(dy, dx)
+                val ray = (0.5f + 0.5f * kotlin.math.sin(a * 9f)) * (0.5f + 0.5f * kotlin.math.sin(a * 23f + 1.3f))
+                glow += ray * ray * kotlin.math.exp(-d * 1.6f) * r.glowRays * st * 0.6f
+            }
+            if (glow < 0.004f) continue
+            val i = y * w + x; val c = px[i]
+            // Screen blend with a warm sun colour.
+            fun scr(v: Int, s: Float) = (255 - (255 - v) * (1f - (s * glow).coerceIn(0f, 1f))).toInt()
+            px[i] = (c and 0xFF000000.toInt()) or (scr(c shr 16 and 0xFF, 1f) shl 16) or (scr(c shr 8 and 0xFF, 0.85f) shl 8) or scr(c and 0xFF, 0.55f)
+        }
+    }
+
     val TOOLS = listOf("Push", "Pinch", "Bloat", "Twirl ↻", "Twirl ↺", "Restore")
 
     // ---------------- Liquify

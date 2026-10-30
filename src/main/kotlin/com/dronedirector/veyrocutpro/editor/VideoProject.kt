@@ -54,17 +54,33 @@ data class Clip(
     val label: Int? = null,
     /** AI depth effect (lens blur, fog, background light); null = off. */
     val depth: DepthFx? = null,
+    /** Picture hidden (the main video track's eye): see-through in the preview and the export. */
+    val hidden: Boolean? = null,
+    /** Offline: a black stand-in whose real media isn't linked (yet); [offlineOf] = the file it stood for, if any. */
+    val offline: Boolean? = null,
+    val offlineOf: String? = null,
+    /** Privacy blur: faces and tapped spots blurred or pixelated, followed through the clip. */
+    val privacy: PrivacyBlur? = null,
+    /** Grade versions A / B / C (Color page): saved looks to switch between and compare. */
+    val versions: List<ClipLook?>? = null,
+    /** A still photo on the timeline: the original photo (the clip plays it as a still). */
+    val still: String? = null,
 ) {
     val is422: Boolean get() = (chroma ?: 1) >= 2
 
     val lengthMs: Long get() = (if (ramp != null) rampedLength() else ((endMs - startMs) / speed).toLong()).coerceAtLeast(1)
 }
 
+/** One saved grade version of a clip: colour, detail and film look. */
+data class ClipLook(val grade: ProGrade = ProGrade(), val detail: Detail = Detail(), val film: FilmLook? = null)
+
 data class DeliverSettings(
     /** Short side in pixels, 0 = same as the first clip. */
     val shortSide: Int = 0,
     val fps: Int = 0,
     val hevc: Boolean = false,
+    /** CineForm .mov (pro editing codec) instead of H.264 / HEVC: quality 0–3, −1 = off. */
+    val cineform: Int = -1,
     /** Mbit/s, 0 = automatic. */
     val bitrateMbps: Int = 0,
     val audio: Boolean = true,
@@ -74,6 +90,8 @@ data class DeliverSettings(
     val fill: Boolean = true,
     /** Save only the sound (AAC in an .m4a file, to Music/AlcorCutPro). */
     val audioOnly: Boolean = false,
+    /** Your details (from a metadata preset) written into the exported video; null = none. */
+    val meta: PhotoMetaEdit? = null,
     /** Export only this part of the timeline (ms); null = the whole edit. */
     val rangeStart: Long? = null,
     val rangeEnd: Long? = null,
@@ -98,7 +116,15 @@ data class DeliverSettings(
     val reviewNotes: Boolean = true,
     /** Timecode shown in a review copy starts here (the export range's start). */
     val reviewTcStart: Long = 0L,
+    /**
+     * Framing set by pinching the viewer: zoom (1 = whole frame) and the shift of the picture as a
+     * share of the frame's width / height. The export shows exactly what the viewer shows.
+     */
+    val frameZoom: Float = 1f,
+    val frameX: Float = 0f,
+    val frameY: Float = 0f,
 ) {
+    val framed: Boolean get() = frameZoom > 1.001f || kotlin.math.abs(frameX) > 0.0005f || kotlin.math.abs(frameY) > 0.0005f
     val audioFmt: AudioExportFormat get() = audioFormat?.takeIf { it.available } ?: AudioExportFormat.M4A
 }
 

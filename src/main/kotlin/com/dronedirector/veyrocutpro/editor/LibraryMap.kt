@@ -63,7 +63,7 @@ fun LibraryMap(photos: List<Pair<String, List<Double>>>, onPick: (List<String>) 
         }
     }
     val clusters = remember { ArrayList<Pair<Offset, List<String>>>() }
-    Box(modifier.background(Color(0xFF0D1B2A))) {
+    com.dronedirector.veyrocutpro.ui.ForceDark { Box(modifier.background(Color(0xFF0D1B2A))) {
         Canvas(
             Modifier.fillMaxSize()
                 .pointerInput(Unit) {
@@ -115,5 +115,5 @@ fun LibraryMap(photos: List<Pair<String, List<Double>>>, onPick: (List<String>) 
         }
         if (photos.isEmpty()) Text("No photos with a location yet — the ones taken with location on show up here.", color = Pro.Dim, fontSize = 12.sp, modifier = Modifier.align(Alignment.Center).padding(24.dp))
         Text("Map: Natural Earth", color = Color.White.copy(alpha = 0.4f), fontSize = 9.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp))
-    }
+    } }
 }

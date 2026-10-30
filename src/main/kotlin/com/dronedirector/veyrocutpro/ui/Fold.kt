@@ -2,6 +2,9 @@ package com.dronedirector.veyrocutpro.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -12,7 +15,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -81,8 +83,22 @@ object Fold {
         prefs?.edit()?.putStringSet("fold_open_$scope", open.filter { it.value && scopeOf(it.key) == scope }.keys.toSet())?.apply()
     }
 
+    /** A section asked to be opened and scrolled to (see [jump]). */
+    var jumpKey by androidx.compose.runtime.mutableStateOf<String?>(null)
+    var jumpTick by androidx.compose.runtime.mutableIntStateOf(0)
+
+    /** Opens the section titled [title] in [scope] and scrolls it to the top of its panel. */
+    fun jump(scope: String, title: String) {
+        val k = "$scope|$title"
+        open[k] = true; save(scope)
+        jumpKey = k; jumpTick++
+    }
+
     fun isOpen(key: String) = open[key] ?: (mode(scopeOf(key)) == OPEN)
-    fun toggle(key: String) { open[key] = !isOpen(key); save(scopeOf(key)) }
+    fun toggle(key: String) { open[key] = !isOpen(key); save(scopeOf(key)); if (open[key] == true) onOpened?.invoke(key) }
+
+    /** Told when a section is opened by hand (the photo editor keeps its recently used tools). */
+    var onOpened: ((String) -> Unit)? = null
 }
 
 /** Gear → Layout & look: how the editor's fold-out sections start. */
@@ -97,7 +113,7 @@ fun FoldModeSetting(scope: String) {
         listOf(Fold.REMEMBER to "Remember", Fold.CLOSED to "Always closed", Fold.OPEN to "All open").forEach { (v, label) ->
             val sel = m == v
             Text(label, color = if (sel) Color.Black else Color.White, fontSize = 12.sp,
-                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (sel) Pro.Amber else Color.White.copy(alpha = 0.08f))
+                modifier = Modifier.clip(RoundedCornerShape(50)).background(if (sel) Pro.Amber else com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.08f))
                     .clickable { Fold.setMode(ctx, scope, v) }.padding(horizontal = 12.dp, vertical = 7.dp))
         }
     }
@@ -166,8 +182,15 @@ internal fun readable(s: String): String {
  * A section header: a fold-out card inside a [FoldColumn], the plain amber title elsewhere.
  * [onReset] adds a small RESET on the right.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun SectionHeader(text: String, onReset: (() -> Unit)? = null) {
+fun SectionHeader(text: String, onReset0: (() -> Unit)? = null) {
+    // RESET can be taken back from the bar that appears ("Light reset — UNDO").
+    val onReset: (() -> Unit)? = onReset0?.let { r -> {
+        val restore = ResetUndo.capture?.invoke()
+        r()
+        if (restore != null) UndoBar.show(I18n.tr("{0} reset").replace("{0}", I18n.tr(text).lowercase().replaceFirstChar { it.uppercase() }), restore)
+    } }
     val c = LocalFold.current
     if (c == null) {
         Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -181,9 +204,19 @@ fun SectionHeader(text: String, onReset: (() -> Unit)? = null) {
     c.begin(key)
     val open = Fold.isOpen(key)
     val summary = c.summaries[key].orEmpty()
+    val bring = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    if (Fold.jumpKey == key) {
+        val tall = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * androidx.compose.ui.platform.LocalDensity.current.density
+        androidx.compose.runtime.LaunchedEffect(Fold.jumpTick) {
+            kotlinx.coroutines.delay(250)
+            // A screen-tall area starting at the header: the panel scrolls so the header is at its top.
+            try { bring.bringIntoView(androidx.compose.ui.geometry.Rect(0f, 0f, 1f, tall)) } catch (_: Throwable) {}
+            if (Fold.jumpKey == key) Fold.jumpKey = null
+        }
+    }
     Row(
-        Modifier.layoutId(FoldId(key)).fillMaxWidth().padding(top = 6.dp, bottom = if (open) 4.dp else 0.dp)
-            .clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.06f))
+        Modifier.layoutId(FoldId(key)).bringIntoViewRequester(bring).fillMaxWidth().padding(top = 6.dp, bottom = if (open) 4.dp else 0.dp)
+            .clip(RoundedCornerShape(14.dp)).background(com.dronedirector.veyrocutpro.ui.Pro.Fg.copy(alpha = 0.06f))
             .clickable { Fold.toggle(key) }.padding(start = 14.dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

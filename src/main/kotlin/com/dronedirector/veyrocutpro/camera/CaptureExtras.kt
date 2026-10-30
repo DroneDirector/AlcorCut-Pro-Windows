@@ -90,6 +90,18 @@ object CaptureExtras {
     var bitrateTier by mutableStateOf(2)
     /** A file (e.g. in Google Drive) the C1–C3 set-ups are synced through, or null. */
     var presetSyncUri by mutableStateOf<String?>(null)
+    /** Anti-flicker for lights on the mains: 0 auto, 1 50 Hz, 2 60 Hz, 3 off. */
+    var antiFlicker by mutableStateOf(0)
+    /** Save where photos and videos were taken (GPS). */
+    var location by mutableStateOf(false)
+    /** Timecode in videos: 0 off, 1 time of day. */
+    var timecode by mutableStateOf(0)
+    /** Make a small proxy copy of each video after recording (for smooth editing). */
+    var proxy by mutableStateOf(false)
+    /** Focus bracketing: number of shots (0 = off). */
+    var focusBracket by mutableStateOf(0)
+    /** Video with the front and back camera at once (picture in picture), where the phone allows it. */
+    var dualCam by mutableStateOf(false)
 
     private fun prefs(c: Context) = c.getSharedPreferences("procam", Context.MODE_PRIVATE)
 
@@ -138,6 +150,12 @@ object CaptureExtras {
         recordAspect = p.getBoolean("x_rec_aspect", false)
         bitrateTier = p.getInt("x_bitrate_tier", if (p.getBoolean("high_bitrate", true)) 2 else 1)
         presetSyncUri = p.getString("x_preset_sync", null)
+        antiFlicker = p.getInt("x_flicker", 0)
+        location = p.getBoolean("x_location", false)
+        timecode = p.getInt("x_timecode", 0)
+        proxy = p.getBoolean("x_proxy", false)
+        focusBracket = p.getInt("x_focus_bracket", 0)
+        dualCam = p.getBoolean("x_dual", false)
     }
 
     fun save(c: Context) {
@@ -184,6 +202,12 @@ object CaptureExtras {
             .putBoolean("x_rec_aspect", recordAspect)
             .putInt("x_bitrate_tier", bitrateTier)
             .putString("x_preset_sync", presetSyncUri)
+            .putInt("x_flicker", antiFlicker)
+            .putBoolean("x_location", location)
+            .putInt("x_timecode", timecode)
+            .putBoolean("x_proxy", proxy)
+            .putInt("x_focus_bracket", focusBracket)
+            .putBoolean("x_dual", dualCam)
             .apply()
     }
 
