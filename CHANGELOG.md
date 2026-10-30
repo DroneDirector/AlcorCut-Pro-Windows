@@ -8,6 +8,7 @@
 - Settings search, What's new, hold any button for help, undo bar for resets, safe mode after a crash at start-up.
 - System Info shows how the window is drawn (graphics card or processor).
 - **AI tools now on Windows**: AI noise reduction, Subject and Sky selection, People masks (whole person, face and body skin, eyes, eyebrows, lips, teeth, hair, clothes), AI upscaling, face finding for People in the library, face reshaping and smart crop. The AI models download once in the background on first start (progress shows bottom left) and are kept in the app's folder.
+- **Every export format now on Windows**: HEIC (with Windows' HEVC Video Extensions), AVIF, JPEG XL and real WebP (WebP files were saved as JPEG before), and **Ultra HDR** JPEGs (Export → OUTPUT) that show bright parts brighter on HDR screens.
 
 ## 1.0.12 and newer — first Windows version
 - The photo editor from the phone app, with the same screens, layout and wording: start page, library, filmstrip, all edit panels (presets, light, curve, colour, HSL mixer, grading, detail, effects, masks, heal, retouch, lens, crop & perspective, watermark, text, history), catalogs, projects and export.

@@ -46,6 +46,8 @@ compose.desktop {
         buildTypes.release.proguard { isEnabled.set(false) }
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            // Picture encoders (WebP, AVIF, JPEG XL), placed in packaging/resources/windows/encoders by the build.
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("packaging/resources"))
             packageName = "AlcorCut Pro"
             packageVersion = appVersion
             description = "AlcorCut Pro — photo and video editor"

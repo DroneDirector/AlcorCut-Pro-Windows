@@ -10,11 +10,16 @@ internal object PhotoExportRemote {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runPhotoExport(context, req) }
 }
 
-/** AVIF saving comes later on Windows (JPEG, PNG, TIFF and the rest work). */
+/** AVIF saving with avifenc (libavif + libaom, BSD), which comes with the app. */
 object AvifWriter {
-    @Volatile var lastError: String? = "AVIF saving isn't on Windows yet"
-    val supported: Boolean = false
-    fun write(src: Bitmap, out: File, quality: Int): Boolean = false
+    @Volatile var lastError: String? = null
+    val supported: Boolean get() = WinEncode.has("avifenc.exe")
+    fun write(src: Bitmap, out: File, quality: Int): Boolean {
+        val b = WinEncode.avif(src, quality)
+        lastError = WinEncode.lastError
+        if (b == null) return false
+        out.writeBytes(b); return true
+    }
 }
 
 /** Voice isolation (video editor). */

@@ -3,5 +3,9 @@
 "The camera comes to Windows with Capture (your phone as the PC's camera)": "Myndatólið kemur til Windows við Capture (telefonin sum myndatól hjá telduni)",
 "Choose folder…": "Vel mappu…",
 "Use default": "Nýt vanligu",
-"Pictures\\AlcorCut Pro": "Myndir\\AlcorCut Pro"
+"Pictures\\AlcorCut Pro": "Myndir\\AlcorCut Pro",
+"HEIC: about half the size of JPEG. Uses Windows' HEVC Video Extensions (Microsoft Store).": "HEIC: umleið hálvt so stór sum JPEG. Brúkar Windows' HEVC Video Extensions (Microsoft Store).",
+"AVIF saving needs the app's AVIF encoder — reinstall the app if it is missing.": "At goyma AVIF krevur AVIF-encoderin hjá appini — legg appina inn av nýggjum, um hann manglar.",
+"JPEG XL: high quality at small sizes, wide colour and HDR-ready; opens in newer photo software, Safari and on Apple devices. Windows shows it with the JPEG XL Image Extension.": "JPEG XL: høg góðska í smáum fílum, breitt litarúm og klárt til HDR; letur upp í nýggjari myndaforritum, Safari og á Apple-tólum. Windows vísir tað við JPEG XL Image Extension.",
+"AI models ({0}) downloading… {1} %": "AI-modellir ({0}) verða tikin niður… {1} %"
 }

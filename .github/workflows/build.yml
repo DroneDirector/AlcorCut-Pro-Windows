@@ -25,6 +25,16 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Picture encoders
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p packaging/resources/windows/encoders
+          gh release download encoders-win-v1 -R ${{ github.repository }} -p encoders-win.zip -D enc
+          7z x -y -opackaging/resources/windows/encoders enc/encoders-win.zip > /dev/null
+          rm -f packaging/resources/windows/encoders/freeglut.dll packaging/resources/windows/encoders/encoders-log.txt
+          ls -la packaging/resources/windows/encoders
       - name: Build installer
         shell: bash
         run: |

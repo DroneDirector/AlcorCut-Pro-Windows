@@ -14,5 +14,10 @@ private val NOTICES = listOf(
     Notice("YuNet face detection (OpenCV Zoo)", "Shiqi Yu, Wei Wu and OpenCV contributors", "MIT License", "https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet"),
     Notice("SFace face recognition (OpenCV Zoo, People in the library)", "Yaoyao Zhong, Weihong Deng and OpenCV contributors", "Apache License 2.0", "https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface"),
     Notice("tf2onnx (model conversion for Windows)", "ONNX Project contributors", "Apache License 2.0", "https://github.com/onnx/tensorflow-onnx"),
+    Notice("libwebp — cwebp (WebP saving)", "Google LLC", "BSD 3-Clause License", "https://chromium.googlesource.com/webm/libwebp"),
+    Notice("libavif — avifenc (AVIF saving)", "Joe Drago and libavif contributors", "BSD 2-Clause License", "https://github.com/AOMediaCodec/libavif"),
+    Notice("libaom (AV1 encoder used by avifenc)", "Alliance for Open Media", "BSD 2-Clause License + AOMedia Patent License 1.0", "https://aomedia.googlesource.com/aom/"),
+    Notice("dav1d (AV1 decoder inside avifenc)", "VideoLAN and dav1d authors", "BSD 2-Clause License", "https://code.videolan.org/videolan/dav1d"),
+    Notice("libjxl — cjxl (JPEG XL saving)", "The JPEG XL Project Authors", "BSD 3-Clause License", "https://github.com/libjxl/libjxl"),
     Notice("Natural Earth 1:110m land outlines (Library map view)", "Natural Earth (naturalearthdata.com)", "Public domain", "https://www.naturalearthdata.com/about/terms-of-use/"),
 )

@@ -3569,9 +3569,9 @@ private fun PhotoPanelContent(
             Text("Format", color = Color.White, fontSize = 13.sp)
             Chips(PHOTO_FORMATS, exportState.format) { onExportState(it, exportState.quality, exportState.sizeIdx) }
             if (exportState.format in 4..5) Text("TIFF: uncompressed and lossless (large files), for print and other editing software.", color = Pro.Dim, fontSize = 11.sp)
-            if (exportState.format == 3) Text("HEIC: about half the size of JPEG (Android 9+).", color = Pro.Dim, fontSize = 11.sp)
-            if (exportState.format == 6) Text(if (AvifWriter.supported) "AVIF: often half the size of JPEG at the same quality; opens on Android 12+, current browsers and most photo apps." else "AVIF needs an AV1 encoder — this phone doesn't have one (Android 14+ has it built in).", color = Pro.Dim, fontSize = 11.sp)
-            if (exportState.format == 7) Text("JPEG XL: high quality at small sizes, wide colour and HDR-ready; opens in newer photo software, Safari and on Apple devices. Few Android apps can show it yet.", color = Pro.Dim, fontSize = 11.sp)
+            if (exportState.format == 3) Text("HEIC: about half the size of JPEG. Uses Windows' HEVC Video Extensions (Microsoft Store).", color = Pro.Dim, fontSize = 11.sp)
+            if (exportState.format == 6) Text(if (AvifWriter.supported) "AVIF: often half the size of JPEG at the same quality; opens on Android 12+, current browsers and most photo apps." else "AVIF saving needs the app's AVIF encoder — reinstall the app if it is missing.", color = Pro.Dim, fontSize = 11.sp)
+            if (exportState.format == 7) Text("JPEG XL: high quality at small sizes, wide colour and HDR-ready; opens in newer photo software, Safari and on Apple devices. Windows shows it with the JPEG XL Image Extension.", color = Pro.Dim, fontSize = 11.sp)
             if (exportState.format != 1 && (exportState.format < 4 || exportState.format >= 6)) EdSlider("Quality", exportState.quality, 0.6f..1f, 0.95f, ::pct) { onExportState(exportState.format, it, exportState.sizeIdx) }
             if (exportState.format == 0) Text(if (exportState.quality >= 0.995f) "JPEG at maximum: full colour detail (4:4:4) and almost no compression — the largest, highest-quality files." else "JPEG keeps full colour detail (4:4:4). 100 % = maximum quality.", color = Pro.Dim, fontSize = 11.sp)
             Text("Size (long edge)", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))

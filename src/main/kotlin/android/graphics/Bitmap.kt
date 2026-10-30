@@ -83,6 +83,8 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
     fun compress(format: CompressFormat, quality: Int, out: OutputStream): Boolean = try {
         when (format) {
             CompressFormat.PNG, CompressFormat.WEBP_LOSSLESS -> ImageIO.write(image, "png", out)
+            CompressFormat.WEBP, CompressFormat.WEBP_LOSSY -> com.dronedirector.veyrocutpro.editor.WinEncode.webp(this, quality)?.let { out.write(it); true }
+                ?: throw IllegalStateException("WebP: " + com.dronedirector.veyrocutpro.editor.WinEncode.lastError)
             else -> if (gainmap != null) { com.dronedirector.veyrocutpro.editor.UltraHdr.write(out, this, quality); true } else {
                 // The app's own JPEG encoder (full colour detail), with the colour profile when not sRGB.
                 val cs = colorSpace
