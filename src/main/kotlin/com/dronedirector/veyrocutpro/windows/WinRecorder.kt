@@ -24,19 +24,26 @@ class WinRecorder(
     private val wav: Boolean = false,
     /** Cut the low rumble of wind and handling noise (high-pass at 80 Hz). */
     private val windFilter: Boolean = false,
+    /** Voice noise reduction: 0 off, 1 light, 2 strong. */
+    private val noiseReduce: Int = 0,
+    /** NTSC rates: 24 / 30 / 60 fps become 23.976 / 29.97 / 59.94 (picture and sound 0.1 % slower). */
+    private val ntsc: Boolean = false,
+    /** Pre-record: the seconds before the press. */
+    private val pre: PreRoll.Take? = null,
 ) {
     @Volatile var wavFile: File? = null; private set
-    private val fpsNum = if (timing == 0) Math.round(fps * 1000) else Math.round(outFps * 1000)
+    private val ntscOn = ntsc && timing == 0 && Math.round(fps) in setOf(24, 30, 60)
+    private val fpsNum = if (timing == 0) (if (ntscOn) Math.round(fps) * 1_000_000 / 1001 else Math.round(fps * 1000)) else Math.round(outFps * 1000)
     private val h: Long
     private val rate = 48_000
-    private val queue = ArrayBlockingQueue<Pair<IntArray, Long>>(6)
+    private val queue = ArrayBlockingQueue<Pair<IntArray, Long>>(if (pre != null) 30 else 6)
     private val pool = ArrayBlockingQueue<IntArray>(8)
     @Volatile private var running = true
     @Volatile var paused = false
         set(v) { if (v && !field) pauseAt = System.nanoTime() else if (!v && field) pausedNs += System.nanoTime() - pauseAt; field = v }
     private var pauseAt = 0L
     @Volatile private var pausedNs = 0L
-    private val t0 = System.nanoTime()
+    private val t0 = pre?.startNs ?: System.nanoTime()
     @Volatile var frames = 0; private set
     @Volatile var dropped = 0; private set
     private var writer: Thread? = null
@@ -49,8 +56,18 @@ class WinRecorder(
         writer = Thread({
             val frameDur = (10_000_000.0 * 1000 / fpsNum).toLong()
             var lastTs = -1L
+            // The seconds before the press first.
+            pre?.frames?.forEach { (jpg, t) ->
+                val img = try { javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(jpg)) } catch (_: Throwable) { null } ?: return@forEach
+                if (img.width != width || img.height != height) return@forEach
+                val px = img.getRGB(0, 0, width, height, null, 0, width)
+                val ts = maxOf((t - t0) / 100, lastTs + 1).let { if (ntscOn) it * 1001 / 1000 else it }
+                if (!MfNative.recVideo(h, px, ts, frameDur)) error = MfNative.error()
+                lastTs = ts; frames++
+            }
             while (running || queue.isNotEmpty()) {
-                val (px, ts0) = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                val (px, ts1) = queue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                val ts0 = if (ntscOn) ts1 * 1001 / 1000 else ts1
                 val ts = when (timing) { 0 -> maxOf(ts0, lastTs + 1); else -> frames * frameDur }
                 if (!MfNative.recVideo(h, px, ts, frameDur)) error = MfNative.error()
                 lastTs = ts
@@ -106,8 +123,43 @@ class WinRecorder(
         // High-pass filter state (per channel).
         val hpA = Math.exp(-2.0 * Math.PI * 80.0 / rate).toFloat()
         val hpX = FloatArray(2); val hpY = FloatArray(2)
+        val nr = if (noiseReduce > 0) arrayOf(NoiseReducer(noiseReduce), NoiseReducer(noiseReduce)) else null
+        val stretch = if (ntscOn) NtscStretch() else null
         var samples = 0L
         var started = false
+        /** Gain, limiter, filters → AAC (and WAV); [x] holds [n] stereo frames. */
+        fun write(x: FloatArray, n0: Int) {
+            var n = n0
+            var buf = x
+            if (windFilter || nr != null) for (c in 0..1) {
+                if (windFilter) for (i in 0 until n) { val v = buf[i * 2 + c]; val y = hpA * (hpY[c] + v - hpX[c]); hpX[c] = v; hpY[c] = y; buf[i * 2 + c] = y }
+                nr?.get(c)?.process(buf, c, n, 2)
+            }
+            if (stretch != null) { buf = stretch.run(buf, n); n = buf.size / 2 }
+            val g = 10.0.pow(gainDb() / 20.0).toFloat(); val lim = limiter()
+            var accL = 0.0; var accR = 0.0
+            val outB = if (out.size >= n * 4) out else ByteArray(n * 4)
+            for (i in 0 until n) for (c in 0..1) {
+                var v = buf[i * 2 + c] * g
+                if (lim) { val a = abs(v); if (a > 0.8f) v = (0.8f + 0.2f * tanh((a - 0.8f) / 0.2f)) * if (v < 0) -1f else 1f }
+                v = v.coerceIn(-1f, 0.99997f)
+                buf[i * 2 + c] = v
+                if (c == 0) accL += (v * v).toDouble() else accR += (v * v).toDouble()
+                val s16 = (v * 32767f).toInt()
+                outB[i * 4 + c * 2] = s16.toByte(); outB[i * 4 + c * 2 + 1] = (s16 shr 8).toByte()
+            }
+            wavOut?.let { w ->
+                val bpsm = bits / 8
+                val wb = ByteArray(n * 2 * bpsm)
+                for (i in 0 until n * 2) { val sv = if (bits == 24) (buf[i] * 8388607f).toInt() else (buf[i] * 32767f).toInt(); for (k in 0 until bpsm) wb[i * bpsm + k] = (sv shr (8 * k)).toByte() }
+                w.write(wb); wavBytes += wb.size
+            }
+            if (n > 0) {
+                MfNative.recAudio(h, outB, n * 4, samples * 10_000_000 / rate, n.toLong() * 10_000_000 / rate)
+                samples += n
+                onLevel(sqrt((accL + accR) / (2 * n)).toFloat(), sqrt(accL / n).toFloat(), sqrt(accR / n).toFloat())
+            }
+        }
         try {
             line24?.start(); rec?.startRecording()
             while (running) {
@@ -122,33 +174,16 @@ class WinRecorder(
                     for (i in 0 until n) for (c in 0..1) x[i * 2 + c] = raw16[i * ch + (if (ch == 2) c else 0)] / 32768f
                 }
                 if (paused) continue
-                if (!started) { started = true; samples = now100ns() * rate / 10_000_000 }
-                val g = 10.0.pow(gainDb() / 20.0).toFloat(); val lim = limiter()
-                var accL = 0.0; var accR = 0.0
-                for (i in 0 until n) for (c in 0..1) {
-                    var v = x[i * 2 + c]
-                    if (windFilter) { val y = hpA * (hpY[c] + v - hpX[c]); hpX[c] = v; hpY[c] = y; v = y }
-                    v *= g
-                    if (lim) { val a = abs(v); if (a > 0.8f) v = (0.8f + 0.2f * tanh((a - 0.8f) / 0.2f)) * if (v < 0) -1f else 1f }
-                    v = v.coerceIn(-1f, 0.99997f)
-                    x[i * 2 + c] = v
-                    if (c == 0) accL += (v * v).toDouble() else accR += (v * v).toDouble()
-                    val s16 = (v * 32767f).toInt()
-                    out[i * 4 + c * 2] = s16.toByte(); out[i * 4 + c * 2 + 1] = (s16 shr 8).toByte()
+                if (!started) {
+                    started = true
+                    val p = pre
+                    if (p != null && p.pcm.size >= 2) {
+                        samples = ((p.pcmStartNs - t0).coerceAtLeast(0) * rate / 1_000_000_000L).let { if (ntscOn) it * 1001 / 1000 else it }
+                        var i = 0
+                        while (i < p.pcm.size / 2) { val m = minOf(960, p.pcm.size / 2 - i); write(p.pcm.copyOfRange(i * 2, (i + m) * 2), m); i += m }
+                    } else samples = now100ns() * rate / 10_000_000
                 }
-                wavOut?.let { w ->
-                    val bpsm = bits / 8
-                    val buf = ByteArray(n * 2 * bpsm)
-                    for (i in 0 until n * 2) {
-                        val s = if (bits == 24) (x[i] * 8388607f).toInt() else (x[i] * 32767f).toInt()
-                        for (k in 0 until bpsm) buf[i * bpsm + k] = (s shr (8 * k)).toByte()
-                    }
-                    w.write(buf); wavBytes += buf.size
-                }
-                val ts = samples * 10_000_000 / rate
-                MfNative.recAudio(h, out, n * 4, ts, n.toLong() * 10_000_000 / rate)
-                samples += n
-                onLevel(sqrt((accL + accR) / (2 * n)).toFloat(), sqrt(accL / n).toFloat(), sqrt(accR / n).toFloat())
+                write(x.copyOf(n * 2), n)
             }
         } catch (_: Throwable) {
         } finally {

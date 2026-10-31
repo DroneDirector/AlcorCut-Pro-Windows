@@ -314,6 +314,9 @@ class ProCameraController(private val context: Context) {
     @Volatile private var recordPipe: ColorPipe? = null
     @Volatile private var digitalZoom = 1f
     private var lastShown = 0L
+    private val stabilizer = Stabilizer()
+    @Volatile private var preRoll: PreRoll? = null
+    @Volatile private var photoSrc: IntArray? = null
     private var cropBuf: IntArray? = null
     @Volatile private var cropX = 0
     @Volatile private var cropY = 0
@@ -326,6 +329,7 @@ class ProCameraController(private val context: Context) {
     /** Leaving Capture: camera, microphone and live stream are let go. */
     fun detach() {
         try { if (st.recording) shutter() } catch (_: Throwable) {}
+        preRoll?.close(); preRoll = null
         audioMeter.stopMonitoring()
         try { live.close() } catch (_: Throwable) {}
         closeCamera()
@@ -458,7 +462,7 @@ class ProCameraController(private val context: Context) {
                 videoResolutions = res.ifEmpty { listOf(VideoRes.HD) },
                 videoRes = if (s.videoRes in res) s.videoRes else res.firstOrNull { it == VideoRes.FHD } ?: res.firstOrNull() ?: VideoRes.HD,
                 fpsOptions = fpsList, fps = if (s.fps in fpsList) s.fps else fpsList.firstOrNull { it == 30 } ?: fpsList.first(),
-                stabilizationSupported = false, stabilization = false, hlgSupported = false, flatSupported = true,
+                stabilizationSupported = true, hlgSupported = false, flatSupported = true,
                 photoSizes = sizes, photoSize = sizes.firstOrNull { it.key == savedSize } ?: sizes.firstOrNull { sz -> f.any { it.width == sz.width && it.height == sz.height && it.fps >= 14f } } ?: sizes.firstOrNull(),
                 sensorReport = c.device.name + (sizes.firstOrNull()?.let { " · up to ${it.width}×${it.height}" } ?: ""),
                 minZoom = 1f, maxZoom = maxZoom, zoom = 1f,
@@ -513,6 +517,11 @@ class ProCameraController(private val context: Context) {
         val src = if (z > 1.01f || flip) { transform(px, work, w, h, z, flip); work } else px
         // Privacy: pixelate the faces found.
         if (CaptureExtras.faceBlur) pixelateFaces(src, w, h)
+        // Digital stabilization (video) and the hyperlapse's steadying.
+        val s0 = st
+        if ((s0.stabilization && s0.mode.isNormalVideo) || (s0.mode == CaptureMode.HYPERLAPSE && s0.lapseStabilize)) stabilizer.apply(src, w, h)
+        // Photos are kept without the monitoring LUT (it is only for looking).
+        photoSrc = if (!s0.isVideo && CaptureExtras.monitorLut != null) (photoSrc?.takeIf { it.size == n } ?: IntArray(n)).also { System.arraycopy(src, 0, it, 0, n) } else null
         // The picture for the recording / stream (with the log profile) and the one shown.
         val rp = recordPipe; val pp = previewPipe
         rp?.apply(src, toRecord, n) ?: System.arraycopy(src, 0, toRecord, 0, n)
@@ -542,6 +551,7 @@ class ProCameraController(private val context: Context) {
             latest = l; latestW = w; latestH = h
         }
         live.frame(toRecord, w, h)
+        if (recorder == null) preRoll?.frame(toRecord, w, h)
         // The screen (up to ~30 pictures a second).
         val now = System.nanoTime()
         if (now - lastShown > 30_000_000L) {
@@ -754,7 +764,13 @@ class ProCameraController(private val context: Context) {
         if (!st.isVideo && st.mode != CaptureMode.LIVE) bind()
     }
     fun photoFormats(): List<PhotoFormat> = listOf(PhotoFormat.JPEG)
-    fun refreshPreRecord() {}
+    /** Pre-record: keeps the last seconds while a normal video mode waits. */
+    fun refreshPreRecord() {
+        val s = st
+        val want = CaptureExtras.preRecordSec > 0 && s.mode.isNormalVideo && !s.recording && phone == null && tether == null && !CaptureExtras.recordAspect
+        if (want && preRoll == null) preRoll = PreRoll(CaptureExtras.preRecordSec)
+        else if (!want) { preRoll?.close(); preRoll = null }
+    }
 
     private var lastSmartMode = CaptureMode.TIMELAPSE
     private var lastRegularMode = CaptureMode.PHOTO
@@ -774,6 +790,7 @@ class ProCameraController(private val context: Context) {
         if (mode == CaptureMode.LIVE) { audioMeter.stopMonitoring(); live.open() }
         refreshPipes()
         bind()
+        refreshPreRecord()
     }
 
     fun showModeGroup(smart: Boolean) {
@@ -1005,9 +1022,14 @@ class ProCameraController(private val context: Context) {
     fun toggleAudio() = set { it.copy(audio = !it.audio) }
     fun setVideoRes(r: VideoRes) { if (fwd("videoRes", r.name)) return; if (st.recording || st.videoRes == r) return; set { it.copy(videoRes = r) }; cam?.let { readCapabilities(it) }; bind() }
     fun setFps(fps: Int) { if (fwd("fps", fps)) return; if (st.recording || st.fps == fps) return; set { it.copy(fps = fps) }; bind() }
-    fun toggleStabilization() { if (fwd("stabilization")) return; toast("PC cameras don't stabilize; Gyroflow needs a phone") }
-    fun setStabilizationMode(mode: Int) { if (mode != 0) toast("PC cameras don't stabilize; Gyroflow needs a phone") }
-    val stabilizationMode: Int get() = 0
+    fun toggleStabilization() { if (fwd("stabilization")) return; if (!st.recording) { set { it.copy(stabilization = !it.stabilization) }; stabilizer.reset() } }
+    fun setStabilizationMode(mode: Int) {
+        if (st.recording) return
+        if (mode == 2) { toast("Gyroflow needs motion data: use your phone as the camera (Connect to PC), or a camera that records its own gyro data"); return }
+        set { it.copy(stabilization = mode == 1) }; stabilizer.reset()
+        if (mode == 1) toast("Stabilization on: the picture is cut in a little to steady it")
+    }
+    val stabilizationMode: Int get() = if (st.stabilization) 1 else 0
 
     fun toggleBitrate() {
         if (st.recording) return
@@ -1323,7 +1345,8 @@ class ProCameraController(private val context: Context) {
 
     /** One photo: the camera's full picture (filter applied), with the camera details in the file. */
     private suspend fun takePhoto(): Boolean {
-        val raw = synchronized(latestLock) { latest?.let { Triple(it.copyOf(), latestW, latestH) } } ?: return false
+        val raw = photoSrc?.let { ps -> Triple(IntArray(ps.size).also { ColorPipe(st.filter, 0, null).apply(ps, it, ps.size) }, latestW, latestH) }
+            ?: synchronized(latestLock) { latest?.let { Triple(it.copyOf(), latestW, latestH) } } ?: return false
         playSound(MediaActionSound.SHUTTER_CLICK)
         set { it.copy(shutterFlash = it.shutterFlash + 1) }
         val s = st
@@ -1445,7 +1468,9 @@ class ProCameraController(private val context: Context) {
         val rec = try {
             WinRecorder(file, rw, rh, fps, bitrate(s, rw, rh, if (lapse) 30f else fps), s.videoCodec == VideoCodec.HEVC, withAudio,
                 { st.audioGainDb }, { st.audioLimiter }, { rms, l, r -> if (!monitorWhileRecording) audioMeter.pushProcessed(rms); set { it.copy(audioLevel = rms) } },
-                timing = if (lapse) 1 else if (slow) 2 else 0, wav = withAudio && CaptureExtras.wavAudio, windFilter = CaptureExtras.windFilter)
+                timing = if (lapse) 1 else if (slow) 2 else 0, wav = withAudio && CaptureExtras.wavAudio, windFilter = CaptureExtras.windFilter,
+                noiseReduce = if (withAudio) CaptureExtras.noiseReduce else 0, ntsc = CaptureExtras.ntsc && !lapse && !slow,
+                pre = preRoll?.let { p -> preRoll = null; p.take().takeIf { t -> t.width == rw && t.height == rh && s.mode.isNormalVideo } })
         } catch (t: Throwable) {
             // No HEVC encoder on this PC: H.264 instead.
             if (s.videoCodec == VideoCodec.HEVC) {
@@ -1458,7 +1483,7 @@ class ProCameraController(private val context: Context) {
             }
             file.delete(); toast("Couldn't start recording: ${t.message}"); return
         }
-        recorder = rec; recordFile = file; lapseLast = 0L; ndCount = 0
+        recorder = rec; recordFile = file; lapseLast = 0L; ndCount = 0; stabilizer.reset()
         recordStartWall = System.currentTimeMillis()
         playSound(MediaActionSound.START_VIDEO_RECORDING)
         set { it.copy(recording = true, paused = false, recordSeconds = 0, lapseFrames = 0) }
@@ -1499,6 +1524,7 @@ class ProCameraController(private val context: Context) {
                 r.dropped > 10 -> toast("Video saved — the PC couldn't keep up with ${r.dropped} pictures; try a lower resolution or frame rate")
             }
             if (s0.mode.isNormalVideo && s0.audio) setAudioMonitoring(true)
+            refreshPreRecord()
         }
     }
 

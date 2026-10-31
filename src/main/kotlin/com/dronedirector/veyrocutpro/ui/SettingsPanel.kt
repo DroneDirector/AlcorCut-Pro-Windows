@@ -150,7 +150,7 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                         x.wavAudio,
                     ) { c.setWavAudio(!x.wavAudio) }
                     else Text("24-bit audio (WAV): needs a more powerful phone (memory, processor and graphics).", color = Pro.Dim, fontSize = 12.sp)
-                    if (false) ToggleRow(
+                    ToggleRow(
                         "NTSC frame rates",
                         "24, 30 and 60 fps clips become 23.976, 29.97 and 59.94 fps (picture and sound slowed by 0.1 % after recording), for broadcast and US workflows",
                         x.ntsc,
@@ -174,10 +174,10 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                     ChoiceRow("Timecode", listOf(0, 1), x.timecode, { if (it == 0) "OFF" else "TIME OF DAY" }) { x.timecode = it; x.save(ctx) }
                     if (false) ToggleRow("Editing proxy", "Makes a small copy of each clip after recording, so the video editor plays it smoothly straight away", x.proxy) { x.proxy = !x.proxy; x.save(ctx) }
                     if (false) ToggleRow("Front + back camera", "Records the back camera with the front camera in a corner, in one video (phones that can run both together)", x.dualCam) { c.setDualCam(!x.dualCam) }
-                    if (false) ChoiceRow("Pre-record", listOf(0, 3, 5, 10), x.preRecordSec, { if (it == 0) "OFF" else "${it}s" }) {
+                    ChoiceRow("Pre-record", listOf(0, 3, 5, 10), x.preRecordSec, { if (it == 0) "OFF" else "${it}s" }) {
                         x.preRecordSec = it; x.save(ctx); c.refreshPreRecord()
                     }
-                    if (false) Text("Keeps the last few seconds before you press record, so you never miss the moment. The camera keeps a temporary recording running while you wait (uses a little more battery).", color = Pro.Dim, fontSize = 12.sp)
+                    Text("Keeps the last few seconds before you press record, so you never miss the moment. The camera keeps a temporary recording running while you wait (uses a little more battery).", color = Pro.Dim, fontSize = 12.sp)
                 }
                 if (s.stabilizationSupported || c.gyroAvailable) {
                     val modes = buildList { add(0); if (s.stabilizationSupported) add(1); if (c.gyroAvailable) add(2) }
@@ -231,8 +231,8 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                     val ctx = androidx.compose.ui.platform.LocalContext.current
                     val x = com.dronedirector.veyrocutpro.camera.CaptureExtras
                     ToggleRow("Wind filter", "Cuts the low rumble of wind and handling noise from recorded sound", x.windFilter) { x.windFilter = !x.windFilter; x.save(ctx) }
-                    if (false) ChoiceRow("Voice noise reduction", listOf(0, 1, 2), x.noiseReduce, { listOf("OFF", "LIGHT", "STRONG")[it] }) { x.noiseReduce = it; x.save(ctx) }
-                    if (false) Text("Cleans hiss, hum and background noise from the recorded sound so voices stand out. Applied when each clip is saved; Strong is for noisy places.", color = Pro.Dim, fontSize = 12.sp)
+                    ChoiceRow("Voice noise reduction", listOf(0, 1, 2), x.noiseReduce, { listOf("OFF", "LIGHT", "STRONG")[it] }) { x.noiseReduce = it; x.save(ctx) }
+                    Text("Cleans hiss, hum and background noise from the recorded sound so voices stand out. Applied when each clip is saved; Strong is for noisy places.", color = Pro.Dim, fontSize = 12.sp)
                     val inputs = androidx.compose.runtime.remember(s.headphones) { c.inputDevices() }
                     Text("Microphones found: " + (inputs.ifEmpty { listOf("phone microphone") }.joinToString(", ")), color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
                     Text("Choose the microphone in Audio hardware (Controls & buttons).", color = Pro.Dim, fontSize = 12.sp)
