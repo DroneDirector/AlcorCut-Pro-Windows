@@ -78,7 +78,7 @@ object WinTranslate {
         loaded[name]?.let { return it }
         val d = File(dir(), name)
         if (!File(d, "model.json").exists()) fetch(name, d)
-        return Marian(d).also { loaded[name] = it }
+        return Marian(d, name.endsWith("-is")).also { loaded[name] = it }
     }
 
     private fun fetch(name: String, d: File) {
@@ -113,7 +113,7 @@ object WinTranslate {
     // ---------------------------------------------------------------- one model
 
     /** One OPUS-MT model: SentencePiece pieces in, greedy decoding out. */
-    private class Marian(d: File) {
+    private class Marian(d: File, private val icelandic: Boolean) {
         private val env = OrtEnvironment.getEnvironment()
         private val opts = OrtSession.SessionOptions().apply { setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT) }
         private val enc = env.createSession(File(d, "encoder_model.onnx").path, opts)
@@ -140,7 +140,9 @@ object WinTranslate {
             if (s.isEmpty()) return text
             // Long captions: by sentence, so nothing is cut off.
             val parts = s.split(Regex("(?<=[.!?。！？])\\s+")).filter { it.isNotBlank() }
-            return parts.joinToString(" ") { one(it) }
+            val r = parts.joinToString(" ") { one(it) }
+            // The Icelandic model writes "đ" for "ð".
+            return if (icelandic) r.replace('đ', 'ð').replace('Đ', 'Ð') else r
         }
 
         @Synchronized private fun one(text: String): String {
