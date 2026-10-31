@@ -62,6 +62,13 @@ jobs:
           7z x -y -opackaging/resources/windows/encoders enc/encoders-win.zip > /dev/null
           rm -f packaging/resources/windows/encoders/freeglut.dll packaging/resources/windows/encoders/encoders-log.txt
           ls -la packaging/resources/windows/encoders
+      - name: Studio voice library (DeepFilterNet3)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p packaging/resources/windows/native
+          gh release download deepfilter-win-v1 -R ${{ github.repository }} -p df.dll -D packaging/resources/windows/native || echo "Studio voice library not published yet"
       - name: Graphics engine (ANGLE)
         shell: bash
         run: |

@@ -24,7 +24,7 @@ import java.net.URL
 /**
  * The AI models the photo editor uses, downloaded once in the background on first start (and
  * resumed if the PC was offline): noise reduction, upscaling, subject / sky masks, faces and Magic
- * Mask. Kept in the app's own folder. Own code.
+ * Mask, and the video editor's studio voice. Kept in the app's own folder. Own code.
  */
 object WinData {
     private const val WIN = "https://github.com/DroneDirector/AlcorCut-Pro-Windows/releases/download/ai-models-win-v1/"
@@ -39,6 +39,7 @@ object WinData {
         PHONE to "sam_encoder.onnx",
         PHONE to "face_sface_2021dec.onnx",
         WIN to "nafnet.onnx",
+        PHONE to "DeepFilterNet3_onnx.tar.gz",
     )
 
     var running by mutableStateOf(false); private set
@@ -60,6 +61,7 @@ object WinData {
                 for ((i, f) in left.withIndex()) {
                     current = AppData.label(f.second.removeSuffix(".onnx")).takeIf { it != f.second.removeSuffix(".onnx") } ?: when {
                         f.second.startsWith("face_") -> "Face recognition"
+                        f.second.startsWith("DeepFilterNet") -> "Studio voice"
                         else -> f.second
                     }
                     fetch(c, f.first + f.second, ModelStore.file(c, f.second)) { p -> percent = ((i * 100 + p) / left.size).coerceIn(0, 99) }

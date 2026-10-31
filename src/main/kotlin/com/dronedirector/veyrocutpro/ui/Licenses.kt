@@ -53,6 +53,15 @@ private val NOTICES = listOf(
     Notice("libaom (AV1 encoder used by avifenc)", "Alliance for Open Media", "BSD 2-Clause License + AOMedia Patent License 1.0", "https://aomedia.googlesource.com/aom/"),
     Notice("dav1d (AV1 decoder inside avifenc)", "VideoLAN and dav1d authors", "BSD 2-Clause License", "https://code.videolan.org/videolan/dav1d"),
     Notice("libjxl — cjxl (JPEG XL saving)", "The JPEG XL Project Authors", "BSD 3-Clause License", "https://github.com/libjxl/libjxl"),
+    Notice("RNNoise (AI voice isolation)", "Jean-Marc Valin, Xiph.Org Foundation, Mozilla", "BSD 3-Clause License", "https://github.com/xiph/rnnoise"),
+    Notice("whisper.cpp and ggml (speech-to-text captions)", "Georgi Gerganov and contributors", "MIT License", "https://github.com/ggerganov/whisper.cpp"),
+    Notice("Whisper speech recognition model", "OpenAI", "MIT License", "https://github.com/openai/whisper"),
+    Notice("CineForm SDK (CineForm export)", "GoPro, Inc.", "Apache License 2.0 or MIT License", "https://github.com/gopro/cineform-sdk"),
+    Notice("DeepFilterNet3 (studio voice)", "Hendrik Schröter", "MIT License or Apache License 2.0", "https://github.com/Rikorose/DeepFilterNet"),
+    Notice("OPUS-MT translation models (caption translation, downloaded on first use)", "Language Technology Research Group, University of Helsinki (Jörg Tiedemann, Santhosh Thottingal)", "Creative Commons Attribution 4.0 / Apache License 2.0", "https://github.com/Helsinki-NLP/Opus-MT"),
+    Notice("Kokoro 82M (AI voiceover, downloaded on first use)", "hexgrad", "Apache License 2.0", "https://huggingface.co/hexgrad/Kokoro-82M"),
+    Notice("Depth Anything V2 Small (AI depth, downloaded on first use)", "Lihe Yang et al.", "Apache License 2.0", "https://github.com/DepthAnything/Depth-Anything-V2"),
+    Notice("Electron's Windows build (source of the ANGLE libraries)", "OpenJS Foundation and Electron contributors", "MIT License", "https://github.com/electron/electron"),
     Notice("Natural Earth 1:110m land outlines (Library map view)", "Natural Earth (naturalearthdata.com)", "Public domain", "https://www.naturalearthdata.com/about/terms-of-use/"),
 )
 

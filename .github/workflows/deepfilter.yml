@@ -23,12 +23,19 @@ jobs:
           cp dfn/LICENSE-MIT out/DeepFilterNet-LICENSE-MIT.txt || true
           cp dfn/LICENSE-APACHE out/DeepFilterNet-LICENSE-APACHE.txt || true
           cd dfn/libDF
-          cargo build --release --features capi,default-model --lib 2>&1 | tail -20
+          cargo build --release --features capi,default-model --lib > ../../cargo.log 2>&1 || { tail -40 ../../cargo.log; exit 1; }
           ls -la ../target/release | tee ../../out/build-log.txt
           dll=$(ls ../target/release/*.dll | head -1)
           cp "$dll" ../../out/df.dll
           cd ../..
           ls -la out
+      - name: Report build problems
+        if: failure()
+        run: |
+          f=cargo.log; [ -f $f ] || exit 0
+          msg=$( (grep -E "^error|error\[|warning: unused" $f | head -15; tail -15 $f) | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build::${msg}"
+          ls dfn/target/release 2>/dev/null | head -30
       - name: Check
         run: |
           pip install -q numpy
