@@ -503,6 +503,7 @@ class ProCameraController(private val context: Context) {
                 if (!ok) toast("Couldn't start the camera at ${format.width}×${format.height}: " + com.dronedirector.veyrocutpro.windows.MfNative.error())
                 set { it.copy(ready = ok) }
                 applyControls()
+                refreshDual()
             }
         }
     }
@@ -522,6 +523,8 @@ class ProCameraController(private val context: Context) {
         // Digital stabilization (video) and the hyperlapse's steadying.
         val s0 = st
         if ((s0.stabilization && s0.mode.isNormalVideo) || (s0.mode == CaptureMode.HYPERLAPSE && s0.lapseStabilize)) stabilizer.apply(src, w, h)
+        // Front + back: the second PC camera in a corner, in the picture and the clip.
+        if (second != null && s0.mode.isNormalVideo) drawSecond(src, w, h)
         // Photos are kept without the monitoring LUT (it is only for looking).
         photoSrc = if (!s0.isVideo && CaptureExtras.monitorLut != null) (photoSrc?.takeIf { it.size == n } ?: IntArray(n)).also { System.arraycopy(src, 0, it, 0, n) } else null
         // The picture for the recording / stream (with the log profile) and the one shown.
@@ -772,6 +775,7 @@ class ProCameraController(private val context: Context) {
         val want = CaptureExtras.preRecordSec > 0 && s.mode.isNormalVideo && !s.recording && phone == null && tether == null && !CaptureExtras.recordAspect
         if (want && preRoll == null) preRoll = PreRoll(CaptureExtras.preRecordSec)
         else if (!want) { preRoll?.close(); preRoll = null }
+        refreshDual()
     }
 
     private var lastSmartMode = CaptureMode.TIMELAPSE
@@ -855,7 +859,63 @@ class ProCameraController(private val context: Context) {
     }
 
     fun setAntiFlicker(v: Int) { CaptureExtras.antiFlicker = v; CaptureExtras.save(context); applyControls() }
-    fun setDualCam(on: Boolean) { toast("Two cameras at once needs a phone that can run both") }
+    fun setDualCam(on: Boolean) {
+        if (st.recording) return
+        if (on && devices.size < 2) { toast("Two cameras at once needs a second camera on this PC (a second webcam or a capture card)"); return }
+        CaptureExtras.dualCam = on; CaptureExtras.save(context)
+        refreshDual()
+        if (on && !st.mode.isNormalVideo) toast("Front + back: shows in VIDEO and PRO VIDEO")
+    }
+
+    // ---------------------------------------------------------------- second PC camera (picture in picture)
+
+    private var second: PcCamera? = null
+    private val secondLock = Any()
+    private var secondPx: IntArray? = null
+    private var secondW = 0; private var secondH = 0
+
+    /** Opens or closes the second camera for Front + back (normal video modes with a PC camera). */
+    private fun refreshDual() {
+        val s = st
+        val main = cam
+        val want = CaptureExtras.dualCam && s.mode.isNormalVideo && main != null && phone == null && tether == null
+        val other = if (want) devices.firstOrNull { it.link != main!!.device.link } else null
+        if (other == null || (second != null && second!!.device.link != other.link)) {
+            val c = second; second = null
+            synchronized(secondLock) { secondPx = null }
+            if (c != null) io.execute { c.close() }
+        }
+        if (other == null || second != null) return
+        val c = PcCamera(other)
+        second = c
+        io.execute {
+            if (!c.open()) { if (second === c) second = null; toast("Couldn't open ${other.name} as the second camera"); return@execute }
+            val f = c.pick(640, 360, 30f) ?: c.pick(640, 480, 30f) ?: c.formats.minByOrNull { it.width * it.height }
+            if (f == null || second !== c || !c.start(f, { px, w, h, _ -> synchronized(secondLock) {
+                    val b = secondPx?.takeIf { it.size == w * h } ?: IntArray(w * h)
+                    System.arraycopy(px, 0, b, 0, w * h); secondPx = b; secondW = w; secondH = h
+                } }) { synchronized(secondLock) { secondPx = null } }) { c.close(); if (second === c) second = null }
+        }
+    }
+
+    /** The second camera in the bottom-right corner (a quarter of the width, with a thin frame). */
+    private fun drawSecond(dst: IntArray, w: Int, h: Int) = synchronized(secondLock) {
+        val p = secondPx ?: return
+        val sw = secondW; val sh = secondH
+        val pw = (w * 0.28f).toInt() and 1.inv(); val ph = (pw.toLong() * sh / sw).toInt()
+        val m = (w * 0.025f).toInt()
+        val x0 = w - pw - m; val y0 = h - ph - m
+        if (x0 < 2 || y0 < 2) return
+        val border = 0xFFFFFFFF.toInt()
+        for (y in -2 until ph + 2) {
+            val dy = y0 + y; if (dy !in 0 until h) continue
+            val row = dy * w
+            if (y < 0 || y >= ph) { for (x in -2 until pw + 2) dst[row + x0 + x] = border; continue }
+            dst[row + x0 - 2] = border; dst[row + x0 - 1] = border; dst[row + x0 + pw] = border; dst[row + x0 + pw + 1] = border
+            val sy = y * sh / ph
+            for (x in 0 until pw) dst[row + x0 + x] = p[sy * sw + x * sw / pw] or 0xFF000000.toInt()
+        }
+    }
     fun macroLensIndex(): Int? = null
     /** Macro on a PC camera: focus as close as it can (webcams with adjustable focus), or the phone's macro. */
     fun macro() {
