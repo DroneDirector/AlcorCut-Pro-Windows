@@ -460,7 +460,7 @@ class ProCameraController(private val context: Context) {
                 isoStops = isos, shutterStops = shutters,
                 minFocusDiopters = if (focusCtl != null) 10f else 0f,
                 evMin = if (brightCtl != null) -6 else 0, evMax = if (brightCtl != null) 6 else 0, evStep = 1f / 3f,
-                rawSupported = false, hasFlash = false, scenes = listOf(Scene.STANDARD),
+                rawSupported = false, hasFlash = true, scenes = listOf(Scene.STANDARD),
                 videoResolutions = res.ifEmpty { listOf(VideoRes.HD) },
                 videoRes = if (s.videoRes in res) s.videoRes else res.firstOrNull { it == VideoRes.FHD } ?: res.firstOrNull() ?: VideoRes.HD,
                 fpsOptions = fpsList, fps = if (s.fps in fpsList) s.fps else fpsList.firstOrNull { it == 30 } ?: fpsList.first(),
@@ -857,7 +857,15 @@ class ProCameraController(private val context: Context) {
     fun setAntiFlicker(v: Int) { CaptureExtras.antiFlicker = v; CaptureExtras.save(context); applyControls() }
     fun setDualCam(on: Boolean) { toast("Two cameras at once needs a phone that can run both") }
     fun macroLensIndex(): Int? = null
-    fun macro() { toast("This camera has no macro lens") }
+    /** Macro on a PC camera: focus as close as it can (webcams with adjustable focus), or the phone's macro. */
+    fun macro() {
+        if (fwd("macro")) return
+        val near = st.minFocusDiopters
+        if (near <= 0f || focusCtl == null) { toast("This camera has a fixed focus: macro needs one with adjustable focus (or your phone as the camera)"); return }
+        set { it.copy(manualFocus = true, focusDiopters = near) }
+        applyControls()
+        toast("Macro: focused as close as this camera goes — move it near the subject until it's sharp")
+    }
 
     /** Next camera on the PC (with the phone: the phone's next lens). */
     fun flipCamera() {
@@ -960,7 +968,54 @@ class ProCameraController(private val context: Context) {
         applyControls()
     }
 
-    fun setFlash(f: FlashSetting) { if (fwd("flash", f.name)) return; if (f != FlashSetting.OFF) toast("This camera has no flash") }
+    /** The window is white while a photo is taken with the screen as the flash. */
+    var screenFlash by androidx.compose.runtime.mutableStateOf(false)
+        private set
+
+    /**
+     * Flash on a PC camera: the screen lights your face for the photo (webcams face you), and network
+     * video lights (Elgato Key Light and alike) flash to full. Torch = those lights on.
+     */
+    fun setFlash(f: FlashSetting) {
+        if (fwd("flash", f.name)) return
+        if (tether != null) { if (f != FlashSetting.OFF) toast("Set the flash on the camera itself"); return }
+        val was = st.flash
+        set { it.copy(flash = f) }
+        when {
+            f == FlashSetting.TORCH -> io.execute {
+                KeyLight.find()
+                if (KeyLight.on(100) == 0) { toast("No network video light found (Elgato Key Light and alike): the torch needs one on the same network"); set { it.copy(flash = FlashSetting.OFF) } }
+                else toast("Video light on")
+            }
+            was == FlashSetting.TORCH -> io.execute { KeyLight.restore() }
+            f == FlashSetting.ON || f == FlashSetting.AUTO -> { toast("Flash: the screen lights you up for the photo" + if (KeyLight.lights.isNotEmpty()) ", with your video lights" else ""); io.execute { KeyLight.find() } }
+        }
+    }
+
+    /** Whether the picture is dark enough for the automatic flash. */
+    private fun darkScene(): Boolean = synchronized(latestLock) {
+        val px = latest ?: return false
+        var sum = 0L; var n = 0
+        var i = 0
+        while (i < px.size) { val c = px[i]; sum += ((c shr 16 and 0xFF) * 3 + (c shr 8 and 0xFF) * 6 + (c and 0xFF)) / 10; n++; i += 97 }
+        n > 0 && sum / n < 55
+    }
+
+    /** Lights the scene for a photo (screen + video lights); returns whether it did. */
+    private suspend fun flashUp(): Boolean {
+        val s = st
+        if (tether != null || phone != null || !s.hasFlash) return false
+        if (!(s.flash == FlashSetting.ON || (s.flash == FlashSetting.AUTO && darkScene()))) return false
+        screenFlash = true
+        withContext(Dispatchers.IO) { if (KeyLight.lights.isNotEmpty()) KeyLight.on(100) }
+        delay(450)                     // the camera's exposure settles on the brighter scene
+        return true
+    }
+
+    private fun flashDown() {
+        screenFlash = false
+        if (st.flash != FlashSetting.TORCH) io.execute { KeyLight.restore() }
+    }
     fun setPhotoFormat(f: PhotoFormat) { if (fwd("format", f.name)) return; if (f != PhotoFormat.JPEG) toast("RAW comes with tethered cameras") }
     fun setAspect(a: AspectMode) { set { it.copy(aspect = a) } }
     fun setScene(scene: Scene) {}
@@ -1360,8 +1415,10 @@ class ProCameraController(private val context: Context) {
 
     /** One photo: the camera's full picture (filter applied), with the camera details in the file. */
     private suspend fun takePhoto(): Boolean {
+        val flashed = flashUp()
         val raw = photoSrc?.let { ps -> Triple(IntArray(ps.size).also { ColorPipe(st.filter, 0, null).apply(ps, it, ps.size) }, latestW, latestH) }
-            ?: synchronized(latestLock) { latest?.let { Triple(it.copyOf(), latestW, latestH) } } ?: return false
+            ?: synchronized(latestLock) { latest?.let { Triple(it.copyOf(), latestW, latestH) } } ?: run { if (flashed) flashDown(); return false }
+        if (flashed) flashDown()
         playSound(MediaActionSound.SHUTTER_CLICK)
         set { it.copy(shutterFlash = it.shutterFlash + 1) }
         val s = st

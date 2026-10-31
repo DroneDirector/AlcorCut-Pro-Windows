@@ -146,6 +146,8 @@ private fun Screens(opened: Uri?) {
                 androidx.activity.compose.BackHandler { screen.value = S.HOME }
                 com.dronedirector.veyrocutpro.ui.ForceDark { com.dronedirector.veyrocutpro.ui.CameraScreen(controller) }
                 com.dronedirector.veyrocutpro.ui.PhonePinDialog(controller)
+                // Screen flash for a webcam facing you: the whole window turns white for the photo.
+                if (controller.screenFlash) androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.White))
             }
             S.EDITOR -> com.dronedirector.veyrocutpro.ui.EditorHub(
                 onPhoto = { screen.value = S.PHOTO_EDITOR },

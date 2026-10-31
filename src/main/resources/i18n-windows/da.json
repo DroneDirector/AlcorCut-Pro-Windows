@@ -65,5 +65,12 @@
 "The connection to the TV was lost": "Forbindelsen til tv'et blev afbrudt",
 "The TV closed the player": "Tv'et lukkede afspilleren",
 "Another app took over the TV": "En anden app overtog tv'et",
-"This PC has no motion sensor: the level works on a tablet or 2-in-1, or with your phone as the camera": "Denne pc har ingen bevægelsessensor: vaterpasset virker på en tablet eller 2-i-1, eller med din telefon som kamera"
+"This PC has no motion sensor: the level works on a tablet or 2-in-1, or with your phone as the camera": "Denne pc har ingen bevægelsessensor: vaterpasset virker på en tablet eller 2-i-1, eller med din telefon som kamera",
+"Set the flash on the camera itself": "Indstil flashen på selve kameraet",
+"No network video light found (Elgato Key Light and alike): the torch needs one on the same network": "Intet netværks-videolys fundet (Elgato Key Light og lignende): lommelygten kræver et på samme netværk",
+"Video light on": "Videolys tændt",
+"Flash: the screen lights you up for the photo": "Flash: skærmen lyser dig op til billedet",
+", with your video lights": ", sammen med dine videolys",
+"This camera has a fixed focus: macro needs one with adjustable focus (or your phone as the camera)": "Dette kamera har fast fokus: makro kræver et med justerbart fokus (eller din telefon som kamera)",
+"Macro: focused as close as this camera goes — move it near the subject until it's sharp": "Makro: fokuseret så tæt som dette kamera kan — flyt det tæt på motivet, til det er skarpt"
 }
