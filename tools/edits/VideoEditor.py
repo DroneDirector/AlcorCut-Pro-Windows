@@ -78,4 +78,7 @@ EDITS = [
      'Text("Animated captions from the transcript: each word lights up as it\'s spoken (like Reels / TikTok / Shorts). Made on the PC; cut words are left out.", color = Pro.Dim, fontSize = 11.sp)'),
     ('to move it to another phone or keep it safe.', 'to move it to another PC or keep it safe.'),
     ('best for long or many 4K clips on older phones.', 'best for long or many 4K clips on slower PCs.'),
+    ('Translates every caption layer (AI captions and word-by-word captions) on the PC; the language is found by itself. Each language pack (about 30 MB) is downloaded once. Undo brings the originals back. Translated by Google.',
+     'Translates every caption layer (AI captions and word-by-word captions) on the PC; the language is found by itself. Each language uses translation packs (about 130 MB each, into and out of English), downloaded once. Undo brings the originals back. Translation: OPUS-MT, University of Helsinki.'),
+    ('captions translated — Translated by Google"', 'captions translated with OPUS-MT"'),
 ]

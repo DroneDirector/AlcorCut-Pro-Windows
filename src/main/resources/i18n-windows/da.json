@@ -105,5 +105,10 @@
 "Some clips in this project can't be opened (moved, renamed or on a card that isn't in). FIND THEM looks for files with the same name on the PC and links them again. Or use RELINK in the media pool for each one.": "Nogle klip i projektet kan ikke åbnes (flyttet, omdøbt eller på et kort, der ikke sidder i). FIND DEM leder efter filer med samme navn på pc'en og kobler dem igen. Eller brug GENTILKNYT i mediepuljen for hvert klip.",
 " Not available on this PC.": " Ikke tilgængeligt på denne pc.",
 "about {0} min of {1} left on the PC": "ca. {0} min {1} tilbage på pc'en",
-"One .zip with this edit and every file it uses — to move it to another PC or keep it safe. OPEN ARCHIVE brings one back as a new project.": "Én .zip med denne redigering og alle de filer, den bruger — til at flytte den til en anden pc eller gemme den sikkert. ÅBN ARKIV henter et tilbage som et nyt projekt."
+"One .zip with this edit and every file it uses — to move it to another PC or keep it safe. OPEN ARCHIVE brings one back as a new project.": "Én .zip med denne redigering og alle de filer, den bruger — til at flytte den til en anden pc eller gemme den sikkert. ÅBN ARKIV henter et tilbage som et nyt projekt.",
+"Translates every caption layer (AI captions and word-by-word captions) on the PC; the language is found by itself. Each language uses translation packs (about 130 MB each, into and out of English), downloaded once. Undo brings the originals back. Translation: OPUS-MT, University of Helsinki.": "Oversætter alle undertekstlag (AI-undertekster og ord-for-ord-undertekster) på pc'en; sproget findes automatisk. Hvert sprog bruger oversættelsespakker (ca. 130 MB hver, til og fra engelsk), som hentes én gang. Fortryd bringer originalerne tilbage. Oversættelse: OPUS-MT, Helsinki Universitet.",
+"{0} captions translated with OPUS-MT": "{0} undertekster oversat med OPUS-MT",
+"Getting the translation packs (once, about 130 MB each)…": "Henter oversættelsespakkerne (én gang, ca. 130 MB hver)…",
+"Captions in this language can't be translated on the PC": "Undertekster på dette sprog kan ikke oversættes på pc'en",
+"Captions can't be translated between these languages on the PC yet": "Undertekster kan endnu ikke oversættes mellem disse sprog på pc'en"
 }

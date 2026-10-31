@@ -105,5 +105,10 @@
 "Some clips in this project can't be opened (moved, renamed or on a card that isn't in). FIND THEM looks for files with the same name on the PC and links them again. Or use RELINK in the media pool for each one.": "Summi brot í verkætlanini kunnu ikki latast upp (flutt, umdoypt ella á einum korti, sum ikki situr í). FINN TEY leitar eftir fílum við sama navni á teldini og knýtir tey aftur. Ella brúka KNÝT AFTUR í miðlagoymsluni fyri hvørt.",
 " Not available on this PC.": " Ikki tøkt á hesi teldini.",
 "about {0} min of {1} left on the PC": "umleið {0} min av {1} eftir á teldini",
-"One .zip with this edit and every file it uses — to move it to another PC or keep it safe. OPEN ARCHIVE brings one back as a new project.": "Ein .zip við hesi klippingini og øllum fílunum, hon brúkar — at flyta hana til aðra teldu ella goyma hana trygt. LAT SKJALASAVN UPP fær eitt aftur sum nýggja verkætlan."
+"One .zip with this edit and every file it uses — to move it to another PC or keep it safe. OPEN ARCHIVE brings one back as a new project.": "Ein .zip við hesi klippingini og øllum fílunum, hon brúkar — at flyta hana til aðra teldu ella goyma hana trygt. LAT SKJALASAVN UPP fær eitt aftur sum nýggja verkætlan.",
+"Translates every caption layer (AI captions and word-by-word captions) on the PC; the language is found by itself. Each language uses translation packs (about 130 MB each, into and out of English), downloaded once. Undo brings the originals back. Translation: OPUS-MT, University of Helsinki.": "Umsetur øll undirtekstlog (AI-undirtekstir og orð-fyri-orð-undirtekstir) á teldini; málið verður funnið sjálvvirkandi. Hvørt mál brúkar umsetingarpakkar (umleið 130 MB hvør, til og frá enskum), sum verða tiknir niður eina ferð. Angra fær upprunaligu aftur. Umseting: OPUS-MT, Helsinki Universitet.",
+"{0} captions translated with OPUS-MT": "{0} undirtekstir umsettar við OPUS-MT",
+"Getting the translation packs (once, about 130 MB each)…": "Tekur umsetingarpakkarnar niður (eina ferð, umleið 130 MB hvør)…",
+"Captions in this language can't be translated on the PC": "Undirtekstir á hesum máli kunnu ikki umsetast á teldini",
+"Captions can't be translated between these languages on the PC yet": "Undirtekstir kunnu enn ikki umsetast millum hesi mál á teldini"
 }

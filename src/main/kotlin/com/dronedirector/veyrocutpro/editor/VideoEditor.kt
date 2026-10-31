@@ -2190,7 +2190,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
                 val t = captionPieces(out[k], 38).joinToString("\n").ifBlank { out[k] }
                 layers[i] = l.copy(text = if (l.text == l.text.uppercase() && l.text.any { it.isLetter() }) t.uppercase() else t, words = null, name = "Caption")
             }
-            es.message = "${caps.size} captions translated — Translated by Google"
+            es.message = "${caps.size} captions translated with OPUS-MT"
         }
     }
 
@@ -6804,7 +6804,7 @@ private fun LayersPage(
         "TRANSLATE ALL CAPTIONS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
         modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { onTranslate(CaptionTranslate.targets[trTo].first) }.padding(10.dp),
     )
-    Text("Translates every caption layer (AI captions and word-by-word captions) on the PC; the language is found by itself. Each language pack (about 30 MB) is downloaded once. Undo brings the originals back. Translated by Google.", color = Pro.Dim, fontSize = 11.sp)
+    Text("Translates every caption layer (AI captions and word-by-word captions) on the PC; the language is found by itself. Each language uses translation packs (about 130 MB each, into and out of English), downloaded once. Undo brings the originals back. Translation: OPUS-MT, University of Helsinki.", color = Pro.Dim, fontSize = 11.sp)
     SectionTitle("DRONE TELEMETRY")
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.hintedScroll(horizontal = true)) {
         val t = telemetryShow

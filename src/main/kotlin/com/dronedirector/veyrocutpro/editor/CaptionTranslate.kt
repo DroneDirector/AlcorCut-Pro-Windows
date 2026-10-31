@@ -18,7 +18,7 @@ object CaptionTranslate {
     val targets = listOf(
         "en" to "English", "da" to "Danish", "no" to "Norwegian", "sv" to "Swedish", "is" to "Icelandic", "de" to "German",
         "nl" to "Dutch", "fr" to "French", "es" to "Spanish", "it" to "Italian", "pt" to "Portuguese", "pl" to "Polish",
-        "fi" to "Finnish", "uk" to "Ukrainian", "ar" to "Arabic", "hi" to "Hindi", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese",
+        "fi" to "Finnish", "uk" to "Ukrainian", "ar" to "Arabic", "hi" to "Hindi", "ja" to "Japanese", "zh" to "Chinese",
     )
 
     class Failed(msg: String) : Exception(msg)
@@ -37,12 +37,12 @@ object CaptionTranslate {
      */
     fun translate(texts: List<String>, from: String?, to: String, onStatus: (String) -> Unit): List<String> {
         val src0 = from ?: detect(texts.joinToString(" ")) ?: throw Failed("Couldn't tell which language the captions are in")
-        val src = TranslateLanguage.fromLanguageTag(src0) ?: throw Failed("Captions in this language can't be translated on the phone")
+        val src = TranslateLanguage.fromLanguageTag(src0) ?: throw Failed("Captions in this language can't be translated on the PC")
         val dst = TranslateLanguage.fromLanguageTag(to) ?: throw Failed("Can't translate into that language")
         if (src == dst) return texts
         val t = Translation.getClient(TranslatorOptions.Builder().setSourceLanguage(src).setTargetLanguage(dst).build())
         try {
-            onStatus("Getting the language pack (once, about 30 MB)…")
+            onStatus("Getting the translation packs (once, about 130 MB each)…")
             Tasks.await(t.downloadModelIfNeeded(DownloadConditions.Builder().build()), 10, TimeUnit.MINUTES)
             return texts.mapIndexed { i, s ->
                 onStatus("Translating ${i + 1} / ${texts.size}…")

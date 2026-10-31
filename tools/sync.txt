@@ -218,6 +218,7 @@ copy editor/AudioXfx.kt
 copy editor/AutoSwitch.kt
 copy editor/BarTools.kt
 copy editor/CaptionTranslate.kt
+edit editor/CaptionTranslate.kt CaptionTranslate.py
 copy editor/Chroma.kt
 copy editor/ChunkedExport.kt
 copy editor/CineForm.kt
