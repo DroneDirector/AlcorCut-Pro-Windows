@@ -7,7 +7,7 @@
 - **Photos**: burst, bracketing, intervals, timer, long exposure (trails, silky water, night sky), portrait blur, focus bracketing for the editor's focus stack.
 - **Live streaming** to YouTube, Twitch, Facebook, TikTok or any RTMP / RTMPS server.
 - **Your phone as the PC's camera** (Connect to PC in the phone app, 1.0.808 and newer): over Wi-Fi or a USB cable with USB tethering, PIN-protected; the PC shows the live picture and works the phone's camera, and every photo and video is copied to the PC at full quality.
-- **Tethered pro cameras** over USB: shutter from the PC, ISO / shutter / white balance / exposure compensation where the camera offers them, live view on Nikon and Canon EOS bodies, and every new photo copied to the PC straight away.
+- **Tethered pro cameras** over USB: shutter from the PC, ISO / shutter / white balance / exposure compensation (also on Canon EOS and Sony Alpha bodies, which use their own settings), live view on Nikon, Canon EOS and Sony Alpha bodies (Sony: set USB to PC Remote), and every new photo copied to the PC straight away.
 - **Pre-record** (Settings → Video): the seconds before you press record are kept, so the clip starts before the moment you reacted to.
 - **Voice noise reduction** (light or strong) while recording: fan hum, hiss and traffic are turned down so voices stand out.
 - **NTSC frame rates** (23.976 / 29.97 / 59.94) with the sound kept in step.
