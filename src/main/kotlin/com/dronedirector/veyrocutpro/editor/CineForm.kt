@@ -129,7 +129,7 @@ object CineForm {
         if (!alive()) { pcmFile.delete(); ex.release(); return null to null }
         // Frame rate from the render (exact for 23.976 / 29.97 / 59.94).
         val fps = run {
-            val f = try { vt.format.getInteger(MediaFormat.KEY_FRAME_RATE).toDouble() } catch (_: Throwable) { 0.0 }
+            val f = try { vt.format.getFloat("frame-rate-exact", vt.format.getInteger(MediaFormat.KEY_FRAME_RATE).toFloat()).toDouble() } catch (_: Throwable) { 0.0 }
             if (f > 0) f else 30.0
         }.let { f -> listOf(23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0, 120.0).minByOrNull { kotlin.math.abs(it - f) }?.takeIf { kotlin.math.abs(it - f) < 0.6 } ?: f }
 
@@ -191,11 +191,11 @@ object CineForm {
                         if (handle == 0L) {
                             // CineForm wants the width in steps of 8: a few pixels are trimmed evenly if needed.
                             encW = cw - cw % 8; encH = chh
-                            handle = nOpen(pfd.fd, encW, encH, fps, quality, if (pcmIn != null) rate else 0, ch)
+                            handle = nOpen(com.dronedirector.veyrocutpro.windows.CfFiles.fd(pfd), encW, encH, fps, quality, if (pcmIn != null) rate else 0, ch)
                             if (handle == 0L) { err = "This picture size can't be made into CineForm"; img.close(); dec.releaseOutputBuffer(o, false); break }
                         }
                         val left = (crop.left + (cw - encW) / 2) and 1.inv(); val top = crop.top and 1.inv()
-                        val p = img.planes
+                        val p = com.dronedirector.veyrocutpro.windows.Bt709.planes(img)
                         val yRow = p[0].rowStride; val cRow = p[1].rowStride; val cPix = p[1].pixelStride
                         val ok = nFrame(handle, encW, encH,
                             p[0].buffer, top * yRow + left,
@@ -222,6 +222,7 @@ object CineForm {
         val closed = if (handle != 0L) nClose(handle, keep) else false
         try { pcmIn?.close() } catch (_: Throwable) {}
         pcmFile.delete()
+        com.dronedirector.veyrocutpro.windows.CfFiles.close(pfd)
         try { pfd.close() } catch (_: Throwable) {}
         return if (keep && closed) {
             if (Build.VERSION.SDK_INT >= 29 && target.authority == MediaStore.AUTHORITY) Storage.publish(context, target)

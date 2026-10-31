@@ -69,11 +69,10 @@ open class Image internal constructor(val width: Int, val height: Int, internal 
     }
     open val planes: Array<Plane> by lazy {
         val y = width * height; val cw = (width + 1) / 2; val ch = (height + 1) / 2
-        arrayOf(
-            Plane(ByteBuffer.wrap(data, 0, y).slice(), width, 1),
-            Plane(ByteBuffer.wrap(data, y, cw * ch).slice(), cw, 1),
-            Plane(ByteBuffer.wrap(data, y + cw * ch, cw * ch).slice(), cw, 1),
-        )
+        // Direct memory, as decoders give it on the phone (native code reads the planes in place).
+        val all = ByteBuffer.allocateDirect(data.size).put(data).also { it.position(0) }
+        fun part(at: Int, n: Int) = all.duplicate().apply { position(at); limit(at + n) }.slice()
+        arrayOf(Plane(part(0, y), width, 1), Plane(part(y, cw * ch), cw, 1), Plane(part(y + cw * ch, cw * ch), cw, 1))
     }
     override fun close() {}
 }

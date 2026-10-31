@@ -286,3 +286,4 @@ edit editor/MorphCut.kt NativeLoad.py
 edit editor/Transcriber.kt NativeLoad.py
 edit editor/VoiceIsolator.kt NativeLoad.py
 edit editor/CineForm.kt NativeLoad.py
+edit editor/CineForm.kt CineForm.py
