@@ -19,6 +19,8 @@ import androidx.compose.ui.draw.clip
  * AlcorCut Pro uses on this PC (Windows' own choice unless you pick one). Own code.
  */
 object AudioHardware {
+    /** A video player follows the chosen speaker / headphones (Windows' players use the chosen output). */
+    fun track(c: android.content.Context, p: androidx.media3.exoplayer.ExoPlayer) { start(c) }
     private const val PREFS = "procam"
     var version by androidx.compose.runtime.mutableIntStateOf(0)
         private set

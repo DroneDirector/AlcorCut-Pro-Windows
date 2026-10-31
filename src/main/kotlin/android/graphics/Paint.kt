@@ -206,13 +206,22 @@ object Color {
 }
 
 /** Lines and curves for [Canvas.drawPath]. */
-class Path {
+class Path() {
+    constructor(src: Path?) : this() { if (src != null) { shape.append(src.shape, false); fillType = src.fillType; open = src.open } }
+    fun set(src: Path) { reset(); shape.append(src.shape, false); fillType = src.fillType; open = src.open }
+    fun offset(dx: Float, dy: Float) { shape.transform(java.awt.geom.AffineTransform.getTranslateInstance(dx.toDouble(), dy.toDouble())) }
+    fun arcTo(r: RectF, start: Float, sweep: Float, forceMoveTo: Boolean) {
+        shape.append(java.awt.geom.Arc2D.Float(r.left, r.top, r.width(), r.height(), -start, -sweep, java.awt.geom.Arc2D.OPEN), !forceMoveTo && open); open = true
+    }
+    fun arcTo(r: RectF, start: Float, sweep: Float) = arcTo(r, start, sweep, false)
+    fun addArc(r: RectF, start: Float, sweep: Float) { shape.append(java.awt.geom.Arc2D.Float(r.left, r.top, r.width(), r.height(), -start, -sweep, java.awt.geom.Arc2D.OPEN), false); open = true }
+    fun computeBounds(out: RectF, exact: Boolean) { val b = shape.bounds2D; out.set(b.minX.toFloat(), b.minY.toFloat(), b.maxX.toFloat(), b.maxY.toFloat()) }
     enum class FillType { WINDING, EVEN_ODD, INVERSE_WINDING, INVERSE_EVEN_ODD }
     enum class Direction { CW, CCW }
     val shape = java.awt.geom.Path2D.Float()
     var fillType = FillType.WINDING
         set(v) { field = v; shape.windingRule = if (v == FillType.EVEN_ODD) java.awt.geom.Path2D.WIND_EVEN_ODD else java.awt.geom.Path2D.WIND_NON_ZERO }
-    private var open = false
+    internal var open = false
 
     fun reset() { shape.reset(); open = false }
     fun rewind() = reset()
@@ -231,4 +240,49 @@ class Path {
         if (m.isAffine) shape.transform(java.awt.geom.AffineTransform(m.v[0], m.v[3], m.v[1], m.v[4], m.v[2], m.v[5]))
     }
     val isEmpty: Boolean get() = shape.currentPoint == null
+}
+
+
+/** Length along a path and points on it (the path flattened to short lines). */
+class PathMeasure(path: Path?, forceClosed: Boolean) {
+    constructor() : this(null, false)
+    private val pts = ArrayList<FloatArray>()      // x, y, distance so far
+    private var len = 0f
+    init { if (path != null) setPath(path, forceClosed) }
+    fun setPath(path: Path?, forceClosed: Boolean) {
+        pts.clear(); len = 0f
+        if (path == null) return
+        val it = path.shape.getPathIterator(null, 0.5)
+        val c = FloatArray(6); var lx = 0f; var ly = 0f; var sx = 0f; var sy = 0f
+        while (!it.isDone) {
+            when (it.currentSegment(c)) {
+                java.awt.geom.PathIterator.SEG_MOVETO -> { if (pts.isNotEmpty()) break; lx = c[0]; ly = c[1]; sx = lx; sy = ly; pts += floatArrayOf(lx, ly, 0f) }
+                java.awt.geom.PathIterator.SEG_LINETO -> { len += kotlin.math.hypot(c[0] - lx, c[1] - ly); lx = c[0]; ly = c[1]; pts += floatArrayOf(lx, ly, len) }
+                java.awt.geom.PathIterator.SEG_CLOSE -> { len += kotlin.math.hypot(sx - lx, sy - ly); lx = sx; ly = sy; pts += floatArrayOf(lx, ly, len) }
+            }
+            it.next()
+        }
+        if (forceClosed && pts.size > 1) { val f = pts[0]; len += kotlin.math.hypot(f[0] - lx, f[1] - ly); pts += floatArrayOf(f[0], f[1], len) }
+    }
+    val length: Float get() = len
+    fun getPosTan(d: Float, pos: FloatArray?, tan: FloatArray?): Boolean {
+        if (pts.size < 2) return false
+        val t = d.coerceIn(0f, len)
+        var i = 1
+        while (i < pts.size - 1 && pts[i][2] < t) i++
+        val a = pts[i - 1]; val b = pts[i]
+        val seg = (b[2] - a[2]).coerceAtLeast(1e-6f); val k = (t - a[2]) / seg
+        pos?.let { it[0] = a[0] + (b[0] - a[0]) * k; it[1] = a[1] + (b[1] - a[1]) * k }
+        tan?.let { val dx = b[0] - a[0]; val dy = b[1] - a[1]; val l = kotlin.math.hypot(dx, dy).coerceAtLeast(1e-6f); it[0] = dx / l; it[1] = dy / l }
+        return true
+    }
+    fun getSegment(start: Float, stop: Float, dst: Path, startWithMoveTo: Boolean): Boolean {
+        if (pts.size < 2 || stop <= start) return false
+        val p = FloatArray(2)
+        getPosTan(start, p, null); if (startWithMoveTo) dst.moveTo(p[0], p[1]) else dst.lineTo(p[0], p[1])
+        for (q in pts) if (q[2] > start && q[2] < stop) dst.lineTo(q[0], q[1])
+        getPosTan(stop, p, null); dst.lineTo(p[0], p[1])
+        return true
+    }
+    fun nextContour() = false
 }

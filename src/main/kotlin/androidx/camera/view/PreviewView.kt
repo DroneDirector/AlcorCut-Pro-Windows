@@ -14,7 +14,7 @@ open class PreviewView(context: android.content.Context? = null) : android.view.
     enum class ScaleType { FILL_START, FILL_CENTER, FILL_END, FIT_START, FIT_CENTER, FIT_END }
     var implementationMode = ImplementationMode.COMPATIBLE
     var scaleType = ScaleType.FILL_CENTER
-    var parent: Any? = null
+
 
     /** The newest picture for the screen. */
     var frame by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null); private set

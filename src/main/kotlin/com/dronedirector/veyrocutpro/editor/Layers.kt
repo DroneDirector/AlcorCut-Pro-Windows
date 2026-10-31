@@ -7,7 +7,15 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
+import androidx.media3.common.C
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.BaseAudioProcessor
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.BitmapOverlay
+import androidx.media3.common.OverlaySettings
+import androidx.media3.effect.StaticOverlaySettings
 import com.dronedirector.veyrocutpro.camera.GradeIO
+import java.nio.ByteBuffer
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
@@ -22,6 +30,8 @@ enum class LayerFont(val label: String, val typeface: Typeface) {
     CONDENSED("Condensed", Typeface.create("sans-serif-condensed", Typeface.BOLD)),
     HEAVY("Heavy", Typeface.create("sans-serif-black", Typeface.NORMAL)),
 }
+
+val STICKERS = listOf("🔥", "⭐", "❤️", "😂", "😍", "👍", "🎉", "✨", "📍", "➡️", "🎬", "📸", "🌅", "🏔️", "🌊", "🚁", "💯", "⚡", "🙌", "😎", "🎵", "☀️", "🌙", "💥")
 
 /** A layer on top of the video (or photo): text, sticker, watermark text or logo image. */
 data class Layer(
@@ -339,6 +349,76 @@ fun stampLayer(context: Context, src: Bitmap, l: Layer): Bitmap {
     return out
 }
 
+/** Media3 overlay for one layer: shown only inside its time window. */
+@UnstableApi
+class LayerOverlay(
+    private val bitmap: Bitmap,
+    private val l: Layer,
+    /** Draws the layer with only the first n characters (typewriter animation). */
+    private val partial: ((Int) -> Bitmap?)? = null,
+    /** Draws the layer with word n highlighted (word-by-word captions). */
+    private val highlighted: ((Int) -> Bitmap?)? = null,
+    /** Animated layers (Lottie): the frame index at a time, and that frame's picture. */
+    private val frameIndex: ((Long) -> Int)? = null,
+    private val frameAt: ((Int) -> Bitmap?)? = null,
+) : BitmapOverlay() {
+    private var lastFrame = -1
+    private var lastBmp: Bitmap? = null
+    private val blank = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+    private val startUs = l.startMs * 1000
+    private val endUs = l.endMs * 1000
+    private val whole = l.wholeVideo
+    private val animated = LayerAnims.hasAny(l)
+    private val frames = HashMap<Int, Bitmap>()
+    private val settings: OverlaySettings = StaticOverlaySettings.Builder()
+        .setBackgroundFrameAnchor((l.x * 2f - 1f).coerceIn(-1f, 1f), (1f - l.y * 2f).coerceIn(-1f, 1f))
+        .setOverlayFrameAnchor(0f, 0f)
+        .setAlphaScale(l.opacity.coerceIn(0f, 1f))
+        .build()
+
+    override fun getBitmap(presentationTimeUs: Long): Bitmap {
+        if (!(whole || presentationTimeUs in startUs..endUs)) return blank
+        if (frameIndex != null && frameAt != null) {
+            // A new bitmap per frame (the overlay re-uploads only when the bitmap object changes).
+            val n = frameIndex.invoke(presentationTimeUs / 1000)
+            if (n != lastFrame || lastBmp == null) { lastBmp = frameAt.invoke(n) ?: lastBmp; lastFrame = n }
+            return lastBmp ?: bitmap
+        }
+        if (l.words != null && highlighted != null) {
+            val n = l.wordAt(presentationTimeUs / 1000)
+            if (n >= 0) return frames.getOrPut(100_000 + n) { highlighted.invoke(n) ?: bitmap }
+        }
+        if (!animated) return bitmap
+        val fx = LayerAnims.at(l, presentationTimeUs / 1000)
+        if (fx.chars < 1f && partial != null) {
+            val n = LayerAnims.charCount(l, fx.chars)
+            return frames.getOrPut(-1 - n) { partial.invoke(n) ?: bitmap }
+        }
+        if (fx.reveal < 1f) {
+            val step = (fx.reveal * 40).toInt()
+            return frames.getOrPut(step) { LayerAnims.revealed(bitmap, step / 40f) }
+        }
+        return bitmap
+    }
+
+    override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
+        if (l.keys.isNullOrEmpty() && !animated) return settings
+        // Keyframes and in / out animations: move, scale and fade over time.
+        val ms = presentationTimeUs / 1000
+        val a = l.animAt(ms)
+        val fx = LayerAnims.at(l, ms)
+        val k = (if (l.size > 0f) a.size / l.size else 1f) * fx.scale
+        val x = a.x + fx.dx; val y = a.y + fx.dy
+        return StaticOverlaySettings.Builder()
+            // Up to half a frame past the edge: the part beyond −1…1 goes to the layer's own anchor (each must stay in −1…1).
+            .setBackgroundFrameAnchor((x * 2f - 1f).coerceIn(-1f, 1f), (1f - y * 2f).coerceIn(-1f, 1f))
+            .setOverlayFrameAnchor((x * 2f - 1f).coerceIn(-1f, 1f) - (x * 2f - 1f).coerceIn(-1.5f, 1.5f), (1f - y * 2f).coerceIn(-1f, 1f) - (1f - y * 2f).coerceIn(-1.5f, 1.5f))
+            .setScale(k, k)
+            .setAlphaScale((a.opacity * fx.alpha).coerceIn(0f, 1f))
+            .build()
+    }
+}
+
 /** Background music for the video editor. */
 data class MusicTrack(
     val uri: Uri,
@@ -375,3 +455,38 @@ data class MusicTrack(
 
 /** An audio file in the media pool (not necessarily on the timeline). */
 data class PoolAudio(val uri: android.net.Uri, val name: String, val durationMs: Long)
+
+/** Gain with fade-in / fade-out for a stream of known length (16-bit PCM). */
+@UnstableApi
+class FadeAudioProcessor(private val volume: Float, private val fadeInMs: Long, private val fadeOutMs: Long, private val totalMs: Long) : BaseAudioProcessor() {
+    private var frames = 0L
+
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT) throw AudioProcessor.UnhandledAudioFormatException(inputAudioFormat)
+        return inputAudioFormat
+    }
+
+    override fun queueInput(inputBuffer: ByteBuffer) {
+        val fmt = inputAudioFormat
+        val size = inputBuffer.remaining()
+        val out = replaceOutputBuffer(size)
+        val ch = fmt.channelCount.coerceAtLeast(1)
+        val rate = fmt.sampleRate.coerceAtLeast(1)
+        while (inputBuffer.remaining() >= 2 * ch) {
+            val tMs = frames * 1000L / rate
+            var g = volume
+            if (fadeInMs > 0 && tMs < fadeInMs) g *= tMs.toFloat() / fadeInMs
+            if (fadeOutMs > 0 && totalMs > 0 && tMs > totalMs - fadeOutMs) g *= ((totalMs - tMs).toFloat() / fadeOutMs).coerceIn(0f, 1f)
+            for (c in 0 until ch) {
+                val v = (inputBuffer.short * g).toInt().coerceIn(-32768, 32767)
+                out.putShort(v.toShort())
+            }
+            frames++
+        }
+        while (inputBuffer.hasRemaining()) out.put(inputBuffer.get())
+        out.flip()
+    }
+
+    override fun onFlush() { frames = 0 }
+    override fun onReset() { frames = 0 }
+}

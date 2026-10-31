@@ -15,6 +15,7 @@ class ParcelFileDescriptor private constructor(val file: File, private val raf: 
     companion object {
         const val MODE_READ_ONLY = 0x10000000
         const val MODE_READ_WRITE = 0x30000000
+        const val MODE_CREATE = 0x08000000
         fun open(f: File, mode: String): ParcelFileDescriptor = ParcelFileDescriptor(f, RandomAccessFile(f, if ('w' in mode) "rw" else "r"))
         fun open(f: File, mode: Int): ParcelFileDescriptor = ParcelFileDescriptor(f, RandomAccessFile(f, if (mode == MODE_READ_ONLY) "r" else "rw"))
     }

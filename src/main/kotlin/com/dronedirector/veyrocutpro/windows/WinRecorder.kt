@@ -123,7 +123,8 @@ class WinRecorder(
         // High-pass filter state (per channel).
         val hpA = Math.exp(-2.0 * Math.PI * 80.0 / rate).toFloat()
         val hpX = FloatArray(2); val hpY = FloatArray(2)
-        val nr = if (noiseReduce > 0) arrayOf(NoiseReducer(noiseReduce), NoiseReducer(noiseReduce)) else null
+        val nr = if (noiseReduce > 0) NoiseReducer(2, noiseReduce) else null
+        var nrDrop = nr?.delay ?: 0
         val stretch = if (ntscOn) NtscStretch() else null
         var samples = 0L
         var started = false
@@ -131,9 +132,14 @@ class WinRecorder(
         fun write(x: FloatArray, n0: Int) {
             var n = n0
             var buf = x
-            if (windFilter || nr != null) for (c in 0..1) {
-                if (windFilter) for (i in 0 until n) { val v = buf[i * 2 + c]; val y = hpA * (hpY[c] + v - hpX[c]); hpX[c] = v; hpY[c] = y; buf[i * 2 + c] = y }
-                nr?.get(c)?.process(buf, c, n, 2)
+            if (windFilter) for (c in 0..1) {
+                for (i in 0 until n) { val v = buf[i * 2 + c]; val y = hpA * (hpY[c] + v - hpX[c]); hpX[c] = v; hpY[c] = y; buf[i * 2 + c] = y }
+            }
+            if (nr != null) {
+                // The phone's voice noise reduction (its output starts [delay] samples late: those are left out).
+                val o = nr.process(buf.copyOf(n * 2))
+                val d = minOf(nrDrop, n); nrDrop -= d
+                System.arraycopy(o, d * 2, buf, 0, (n - d) * 2); n -= d
             }
             if (stretch != null) { buf = stretch.run(buf, n); n = buf.size / 2 }
             val g = 10.0.pow(gainDb() / 20.0).toFloat(); val lim = limiter()

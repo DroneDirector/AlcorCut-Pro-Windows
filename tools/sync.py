@@ -140,7 +140,7 @@ def main():
             shutil.copyfile(os.path.join(sys.argv[1], 'app/src/main/assets', f), dst)
             continue
         src = os.path.join(android, f)
-        dst = os.path.join(SRC, f)
+        dst = os.path.join(SRC, f) if not f.endswith('.java') else os.path.join(ROOT, 'src/main/java', PKG, f)
         if cmd == 'copy':
             text = open(src, encoding='utf-8').read()
         elif cmd == 'take':

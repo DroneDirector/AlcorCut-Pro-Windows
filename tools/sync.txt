@@ -49,7 +49,6 @@ copy editor/AiDenoiser.kt
 copy editor/AiSegment.kt
 copy editor/PeopleMask.kt
 copy editor/ObjectRemoval.kt
-drop editor/ObjectRemoval.kt outFile make
 copy editor/Cull.kt
 copy editor/ShotMatch.kt
 copy camera/Upscaler.kt
@@ -73,25 +72,25 @@ edit editor/ModelStore.kt ModelStore.py
 copy camera/CloudAi.kt
 
 # Video editor data (the video engine comes later)
-take editor/VideoProject.kt Clip ClipLook DeliverSettings ExportPreset RangeCut
-take editor/Layers.kt LayerKind LayerFont Layer LayerAnim AnimFx LayerAnims LayerRenderer stampLayer MusicTrack PoolAudio
-take editor/AudioFx.kt AudioChannels AudioFx EqBand AudioPreset
-take editor/Reframe.kt Frame ClipKey Reframe Stabilize Xform KeyCurve
-take editor/FilmFx.kt FilmLook
-take editor/Transitions.kt TransitionGroup TransitionKind TransitionType Transition AudioTransitionType TransitionMath
-take editor/Sfx.kt SfxGroup TransitionSfx
+copy editor/VideoProject.kt
+copy editor/Layers.kt
+copy editor/AudioFx.kt
+copy editor/Reframe.kt
+copy editor/FilmFx.kt
+copy editor/Transitions.kt
+copy editor/Sfx.kt
 copy editor/SpeedMap.kt
-take editor/AiDepth.kt DepthFx
-take editor/BgRemove.kt BgRemoval
-take editor/AudioExport.kt AudioExportFormat
-take editor/MagicMask.kt MaskPoint MagicSel Sam MaskEntry MaskTrack
-take editor/LayerFx.kt LayerKey LayerBlend chromaKeyBitmap lumaKeyBitmap lumaLevelOrDefault lumaAlpha cbcr
+copy editor/AiDepth.kt
+copy editor/BgRemove.kt
+copy editor/AudioExport.kt
+copy editor/MagicMask.kt
+copy editor/LayerFx.kt
 take editor/ShapesLottie.kt ShapeKind ShapeRender
 copy editor/LibraryMap.kt
 copy editor/PrintCollage.kt
 copy editor/ContactSheet.kt
-take editor/Waveforms.kt Beats
-take editor/VideoMasks.kt MAX_VIDEO_MASKS
+copy editor/Waveforms.kt
+copy editor/VideoMasks.kt
 
 # App shell
 copy ui/Theme.kt
@@ -151,13 +150,14 @@ copy ui/AppLog.kt
 copy ui/ScrollMenu.kt
 copy ui/CrashReport.kt
 copy editor/ProjectArchive.kt
-take editor/VideoEditor.kt CLIP_LABELS
+copy editor/VideoEditor.kt
+edit editor/VideoEditor.kt VideoEditor.py
 edit editor/LibraryScreen.kt LibraryScreen.py
 edit editor/Shortcuts.kt Shortcuts.py
 edit editor/TextStylePickers.kt TextStylePickers.py
-take editor/PrivacyBlur.kt BlurTrack PrivacyBlur
-take editor/Stills.kt PhotoRoundTrip
-take editor/VideoLibrary.kt LibVideo VideoLibrary
+copy editor/PrivacyBlur.kt
+copy editor/Stills.kt
+copy editor/VideoLibrary.kt
 assetdir fonts
 
 # Capture (the camera itself is Windows code: windows/WinCamera*.kt)
@@ -205,3 +205,74 @@ asset world_land.bin
 res drawable/ic_launcher_background.xml
 res drawable/ic_launcher_foreground.xml
 swap ui/Licenses.kt NOTICES Licenses.windows.kt
+
+# Video editor
+copy editor/AiDenoiseEffect.kt
+copy editor/AudioEqUi.kt
+copy editor/AudioRepair.kt
+copy editor/AudioSync.kt
+copy editor/AudioXfx.kt
+copy editor/AutoSwitch.kt
+copy editor/BarTools.kt
+copy editor/CaptionTranslate.kt
+copy editor/Chroma.kt
+copy editor/ChunkedExport.kt
+copy editor/CineForm.kt
+copy editor/CleanRender.kt
+copy editor/ClipSelect.kt
+copy editor/CloudVideoPrep.kt
+copy editor/CornerPin.kt
+copy editor/CutoutPreview.kt
+copy editor/DetailEffect.kt
+copy editor/Dubbing.kt
+copy editor/EditTemplates.kt
+copy editor/EditorPanels.kt
+copy editor/EditorState.kt
+copy editor/EncoderCaps.kt
+copy editor/FlowRetime.kt
+copy editor/FxLayers.kt
+copy editor/FxStyles.kt
+copy editor/Generators.kt
+copy editor/GifExport.kt
+copy editor/GradePreview.kt
+copy editor/GyroStab.kt
+copy editor/HdrLevels.kt
+copy editor/Highlights.kt
+copy editor/Interchange.kt
+copy editor/LivePreviewFx.kt
+copy editor/Loudness.kt
+copy editor/MagicMaskUi.kt
+copy editor/MediaStrip.kt
+copy editor/MorphCut.kt
+copy editor/Mp4Meta.kt
+copy editor/Multicam.kt
+copy editor/OpenProjects.kt
+copy editor/PenMask.kt
+copy editor/Proxy.kt
+copy editor/RenderCache.kt
+copy editor/RetroFx.kt
+copy editor/Reveal.kt
+copy editor/SafeZones.kt
+copy editor/Slideshow.kt
+copy editor/SmartRender.kt
+copy editor/SoundLibrary.kt
+copy editor/SourceViewer.kt
+copy editor/Spectrum.kt
+copy editor/Spherical.kt
+copy editor/StemMix.kt
+copy editor/Telemetry.kt
+copy editor/TimeLapse.kt
+copy editor/Timeline.kt
+copy editor/TimelineWheel.kt
+copy editor/TitleBurn.kt
+copy editor/Tracker.kt
+copy editor/Transcriber.kt
+copy editor/TransportBar.kt
+copy editor/VideoReview.kt
+copy editor/VideoThumbs.kt
+copy editor/VideoTools.kt
+copy editor/VisTest.kt
+copy editor/VoiceIsolator.kt
+copy editor/Voiceover.kt
+take camera/AudioGain.kt NoiseReducer
+copy editor/PcmFiles.java

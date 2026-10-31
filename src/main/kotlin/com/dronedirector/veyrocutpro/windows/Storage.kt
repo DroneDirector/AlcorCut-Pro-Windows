@@ -26,6 +26,13 @@ object Storage {
     const val SAME = "same"
     enum class Kind { IMAGE, VIDEO, AUDIO }
 
+    /** A place's name for the screen. */
+    fun label(context: Context, place: String): String = when (place) {
+        SAME -> "Same as capture"
+        INTERNAL -> "This PC"
+        else -> File(place).let { f -> f.name.ifBlank { f.path } }
+    }
+
     fun folder(context: Context, area: StorageArea, kind: Kind): File {
         chosen(context, area)?.let { File(it) }?.takeIf { it.isDirectory && it.canWrite() }?.let { return it }
         val base = if (kind == Kind.IMAGE) Context.picturesDir() else Context.videosDir()

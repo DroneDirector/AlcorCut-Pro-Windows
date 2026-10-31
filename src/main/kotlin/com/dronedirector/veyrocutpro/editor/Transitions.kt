@@ -1,6 +1,15 @@
 package com.dronedirector.veyrocutpro.editor
 
-
+import android.content.Context
+import android.opengl.GLES20
+import androidx.media3.common.VideoFrameProcessingException
+import androidx.media3.common.util.GlProgram
+import androidx.media3.common.util.GlUtil
+import androidx.media3.common.util.Size
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.BaseGlShaderProgram
+import androidx.media3.effect.GlEffect
+import androidx.media3.effect.GlShaderProgram
 
 enum class TransitionGroup(val label: String) { BASIC("Basic"), WIPES("Wipes & shapes"), MOTION("Motion"), FANCY("Stylized"), CINEMATIC("Cinematic"), TRAVEL("Drone & travel"), CREATIVE("Creative") }
 
@@ -266,6 +275,196 @@ enum class AudioTransitionType(val label: String, val detail: String) {
     REVERSE_SWELL_X("Reverse & swell", "The old sound plays backwards; the new one swells out of reverb."),
     MEGAPHONE_IN("Megaphone in", "The new sound starts through a megaphone and opens up."),
     REWIND_RESTART("Rewind & restart", "The old sound rewinds, the new one spins up."),
+}
+
+enum class FadeCurve { LINEAR, POWER, EXP, SMOOTH }
+
+private fun curveIn(c: FadeCurve, p: Float): Float = when (c) {
+    FadeCurve.LINEAR -> p
+    FadeCurve.POWER -> kotlin.math.sin(p * (Math.PI / 2).toFloat())
+    FadeCurve.EXP -> p * p
+    FadeCurve.SMOOTH -> 0.5f - 0.5f * kotlin.math.cos(p * Math.PI.toFloat())
+}
+
+/** Fade at the end of the outgoing clip: starts [fromEndMs] before its end, takes [lenMs], then silence. */
+data class FadeOut(val fromEndMs: Long, val lenMs: Long, val curve: FadeCurve, val fx: AudioXfx = AudioXfx.NONE) {
+    /** How far into the transition (0..1) at [remainingMs] before the clip ends. */
+    fun progress(remainingMs: Long): Float = if (remainingMs >= fromEndMs) 0f else (1f - remainingMs.toFloat() / fromEndMs.coerceAtLeast(1)).coerceIn(0f, 1f)
+    fun gain(remainingMs: Long): Float {
+        val elapsed = fromEndMs - remainingMs
+        if (elapsed <= 0) return 1f
+        val r = elapsed.toFloat() / lenMs.coerceAtLeast(1)
+        return if (r >= 1f) 0f else curveIn(curve, 1f - r)
+    }
+    fun scaled(k: Float) = copy(fromEndMs = (fromEndMs * k).toLong(), lenMs = (lenMs * k).toLong().coerceAtLeast(1))
+}
+
+/** Fade at the start of the incoming clip: silent for [delayMs], then rises over [lenMs]. */
+data class FadeIn(val delayMs: Long, val lenMs: Long, val curve: FadeCurve, val fx: AudioXfx = AudioXfx.NONE) {
+    /** How much effect is left (1 → 0) at [tMs] into the clip. */
+    fun left(tMs: Long): Float = (1f - tMs.toFloat() / (delayMs + lenMs).coerceAtLeast(1)).coerceIn(0f, 1f)
+    fun gain(tMs: Long): Float {
+        if (tMs < delayMs) return 0f
+        val p = (tMs - delayMs).toFloat() / lenMs.coerceAtLeast(1)
+        return if (p >= 1f) 1f else curveIn(curve, p)
+    }
+    fun scaled(k: Float) = copy(delayMs = (delayMs * k).toLong(), lenMs = (lenMs * k).toLong().coerceAtLeast(1))
+}
+
+/** Sound shaping for one cut, used by both the preview and the export. */
+object AudioXfade {
+    /**
+     * Fade-out for the clip before the cut and fade-in for the clip after it.
+     * With a video transition the sound works inside the overlap ([overlapMs]); on a plain cut
+     * (no overlap) the clips can't play together, so the sound fades out and back in around the cut,
+     * over [audioMs] in total.
+     */
+    fun shapes(t: AudioTransitionType, overlapMs: Long, audioMs: Long): Pair<FadeOut?, FadeIn?> {
+        val w = when {
+            overlapMs > 0 -> overlapMs
+            t == AudioTransitionType.AUTO || t == AudioTransitionType.CUT -> return null to null
+            else -> (audioMs / 2).coerceAtLeast(20)
+        }
+        val q = (w / 4).coerceAtLeast(1)
+        val h = (w / 2).coerceAtLeast(1)
+        return when (t) {
+            AudioTransitionType.AUTO, AudioTransitionType.CONSTANT_GAIN -> FadeOut(w, w, FadeCurve.LINEAR) to FadeIn(0, w, FadeCurve.LINEAR)
+            AudioTransitionType.CONSTANT_POWER -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.EXPONENTIAL -> FadeOut(w, w, FadeCurve.EXP) to FadeIn(0, w, FadeCurve.EXP)
+            AudioTransitionType.CUT -> FadeOut(h, 1, FadeCurve.LINEAR) to FadeIn(h, 1, FadeCurve.LINEAR)
+            AudioTransitionType.DIP -> FadeOut(w, h, FadeCurve.POWER) to FadeIn(h, h, FadeCurve.POWER)
+            AudioTransitionType.QUICK_OUT -> FadeOut(w, q, FadeCurve.LINEAR) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.QUICK_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, q, FadeCurve.LINEAR)
+            AudioTransitionType.S_CURVE -> FadeOut(w, w, FadeCurve.SMOOTH) to FadeIn(0, w, FadeCurve.SMOOTH)
+            AudioTransitionType.PAUSE -> FadeOut(w, q, FadeCurve.POWER) to FadeIn(w * 3 / 5, (w * 2 / 5).coerceAtLeast(1), FadeCurve.POWER)
+            AudioTransitionType.LATE_SWAP -> FadeOut(q, q, FadeCurve.POWER) to FadeIn(w - q, q, FadeCurve.POWER)
+            AudioTransitionType.EARLY_SWAP -> FadeOut(w, q, FadeCurve.POWER) to FadeIn(0, q, FadeCurve.POWER)
+            AudioTransitionType.SWELL -> FadeOut(w, w, FadeCurve.LINEAR) to FadeIn(0, w, FadeCurve.EXP)
+            AudioTransitionType.UNDERWATER -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.UNDERWATER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.UNDERWATER)
+            AudioTransitionType.MUFFLE_OUT -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.LOWPASS) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.OPEN_UP -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.LOWPASS)
+            AudioTransitionType.MUFFLED_X -> FadeOut(w, w, FadeCurve.SMOOTH, AudioXfx.LOWPASS) to FadeIn(0, w, FadeCurve.SMOOTH, AudioXfx.LOWPASS)
+            AudioTransitionType.THIN_OUT -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.HIGHPASS) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.ECHO_OUT -> FadeOut(w, w, FadeCurve.EXP, AudioXfx.ECHO) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.ECHO_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.ECHO)
+            AudioTransitionType.REVERB_WASH -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.REVERB) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.REVERB)
+            AudioTransitionType.REVERSE_SWELL -> FadeOut(w, h, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.EXP, AudioXfx.REVERB)
+            AudioTransitionType.TAPE_STOP -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.TAPE_STOP) to FadeIn(w * 3 / 5, (w * 2 / 5).coerceAtLeast(1), FadeCurve.POWER)
+            AudioTransitionType.TAPE_START -> FadeOut(w, h, FadeCurve.POWER) to FadeIn(0, q, FadeCurve.POWER, AudioXfx.TAPE_START)
+            AudioTransitionType.TAPE_BOTH -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.TAPE_STOP) to FadeIn(h, h, FadeCurve.POWER, AudioXfx.TAPE_START)
+            AudioTransitionType.STUTTER -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.STUTTER) to FadeIn(h, h, FadeCurve.POWER)
+            AudioTransitionType.GLITCH -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.GLITCH) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.GLITCH)
+            AudioTransitionType.BITCRUSH -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.BITCRUSH) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.TELEPHONE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.TELEPHONE) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.RADIO -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.RADIO) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.RADIO)
+            AudioTransitionType.PITCH_DIVE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.PITCH_DOWN) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.PITCH_RISE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.PITCH_UP) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.TREMOLO -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.TREMOLO) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.CHOPPER -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.CHOP) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.FLANGER -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.FLANGER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.FLANGER)
+            AudioTransitionType.WOBBLE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.WOBBLE) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.RISER -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.RISER) to FadeIn(0, q, FadeCurve.POWER)
+            AudioTransitionType.DRIVE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.DRIVE) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.SPIN_BACK -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.SPIN_BACK) to FadeIn(h, h, FadeCurve.POWER)
+            AudioTransitionType.VINYL_BRAKE -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.VINYL_BRAKE) to FadeIn(w * 3 / 5, (w * 2 / 5).coerceAtLeast(1), FadeCurve.POWER)
+            AudioTransitionType.PUMP -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.PUMP) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.RING -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.RING) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.AUTOPAN -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.AUTOPAN) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.AUTOPAN)
+            AudioTransitionType.SLAP -> FadeOut(w, w, FadeCurve.EXP, AudioXfx.SLAP) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.LOFI -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.LOFI) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.LOFI)
+            AudioTransitionType.KARAOKE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.KARAOKE) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.AIRY -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.AIRY) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.AIRY)
+            AudioTransitionType.GATE -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.GATE) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.DOPPLER -> FadeOut(w, w, FadeCurve.EXP, AudioXfx.DOPPLER) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.FILTER_SWEEP -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.BANDSWEEP) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.VINYL -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.VINYL) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.RADIO_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.RADIO)
+            AudioTransitionType.PHONE_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.TELEPHONE)
+            AudioTransitionType.STUTTER_IN -> FadeOut(w, h, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.LINEAR, AudioXfx.STUTTER)
+            AudioTransitionType.PITCH_SLIDE_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.PITCH_DOWN)
+            AudioTransitionType.SHIMMER -> FadeOut(w, w, FadeCurve.EXP, AudioXfx.SHIMMER) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.FREEZE -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.FREEZE) to FadeIn(h, h, FadeCurve.POWER)
+            AudioTransitionType.SUB_DROP -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.SUBDROP) to FadeIn(0, q, FadeCurve.POWER)
+            AudioTransitionType.DOWNLIFTER -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.RISER)
+            AudioTransitionType.CHORUS -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.CHORUS) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.CHORUS)
+            AudioTransitionType.CATHEDRAL -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.HALL) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.HALL)
+            AudioTransitionType.RISE_DROP -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.PITCH_UP) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.LOWPASS)
+            AudioTransitionType.SURFACE -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.UNDERWATER)
+            AudioTransitionType.PHASER_SWEEP -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.PHASER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.PHASER)
+            AudioTransitionType.PING_PONG -> FadeOut(w, w, FadeCurve.EXP, AudioXfx.PINGPONG) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.MEGAPHONE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.MEGAPHONE) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.NARROW_OUT -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.NARROW) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.WIDE_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.WIDEN)
+            AudioTransitionType.HARMONY_RISE -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.HARMONY) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.OCTAVE_DROP -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.OCTAVER) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.REVERSE_OUT -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.REVERSE) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.CRUSH_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.BITCRUSH)
+            AudioTransitionType.BASS_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.HIGHPASS)
+            AudioTransitionType.THIN_X -> FadeOut(w, w, FadeCurve.SMOOTH, AudioXfx.HIGHPASS) to FadeIn(0, w, FadeCurve.SMOOTH, AudioXfx.HIGHPASS)
+            AudioTransitionType.FLUTTER_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.TREMOLO)
+            AudioTransitionType.GATE_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.GATE)
+            AudioTransitionType.CHOP_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.CHOP)
+            AudioTransitionType.WOBBLE_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.WOBBLE)
+            AudioTransitionType.GRIT_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.DRIVE)
+            AudioTransitionType.METAL_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.RING)
+            AudioTransitionType.SHIMMER_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.EXP, AudioXfx.SHIMMER)
+            AudioTransitionType.HALL_TAIL -> FadeOut(w, w, FadeCurve.EXP, AudioXfx.HALL) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.SLAP_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.SLAP)
+            AudioTransitionType.PUMP_X -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.PUMP) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.PUMP)
+            AudioTransitionType.PHONE_CALL -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.TELEPHONE) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.TELEPHONE)
+            AudioTransitionType.RECORD_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.VINYL)
+            AudioTransitionType.FLY_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.DOPPLER)
+            AudioTransitionType.FILTER_OPEN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.BANDSWEEP)
+            AudioTransitionType.FREEZE_ECHO -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.FREEZE) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.ECHO)
+            AudioTransitionType.TAPE_ECHO -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.TAPE_STOP) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.ECHO)
+            AudioTransitionType.STUTTER_X -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.STUTTER) to FadeIn(0, w, FadeCurve.LINEAR, AudioXfx.STUTTER)
+            AudioTransitionType.BUILD_BOOM -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.RISER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.SUBDROP)
+            AudioTransitionType.MUFFLE_ECHO -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.LOWPASS) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.ECHO)
+            AudioTransitionType.VOICE_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.KARAOKE)
+            AudioTransitionType.AIRY_OUT -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.AIRY) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.LOFI_OUT -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.LOFI) to FadeIn(0, w, FadeCurve.POWER)
+            AudioTransitionType.LUSH_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.CHORUS)
+            AudioTransitionType.REVERSE_SWELL_X -> FadeOut(w, w, FadeCurve.POWER, AudioXfx.REVERSE) to FadeIn(0, w, FadeCurve.EXP, AudioXfx.REVERB)
+            AudioTransitionType.MEGAPHONE_IN -> FadeOut(w, w, FadeCurve.POWER) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.MEGAPHONE)
+            AudioTransitionType.REWIND_RESTART -> FadeOut(w, w, FadeCurve.LINEAR, AudioXfx.SPIN_BACK) to FadeIn(0, w, FadeCurve.POWER, AudioXfx.TAPE_START)
+        }
+    }
+
+    /** The sound shaping for the cut after clip [i] (null pair when there is no next clip). */
+    fun forCut(clips: List<Clip>, i: Int): Pair<FadeOut?, FadeIn?> {
+        val a = clips.getOrNull(i) ?: return null to null
+        if (i + 1 > clips.lastIndex) return null to null
+        return shapes(a.transition.audioType, overlapMs(clips, i), a.transition.audioLen)
+    }
+}
+
+/** Overlap (ms) between clip [i] and clip [i + 1]. */
+fun overlapMs(clips: List<Clip>, i: Int): Long {
+    val a = clips.getOrNull(i) ?: return 0
+    val b = clips.getOrNull(i + 1) ?: return 0
+    if (a.transition.type == TransitionType.NONE) return 0
+    return a.transition.durationMs.coerceAtMost((minOf(a.lengthMs, b.lengthMs) * 0.45).toLong()).coerceAtLeast(0)
+}
+
+/** Where each clip starts on the timeline (transitions overlap neighbouring clips). */
+fun clipStarts(clips: List<Clip>): LongArray {
+    val out = LongArray(clips.size)
+    for (i in 1 until clips.size) out[i] = out[i - 1] + clips[i - 1].lengthMs - overlapMs(clips, i - 1)
+    return out
+}
+
+fun timelineLength(clips: List<Clip>): Long {
+    if (clips.isEmpty()) return 0
+    return clipStarts(clips).last() + clips.last().lengthMs
+}
+
+/** Clip under a timeline time (the later clip wins inside a transition) and the offset into it (timeline ms). */
+fun clipAt(clips: List<Clip>, ms: Long): Pair<Int, Long> {
+    if (clips.isEmpty()) return 0 to 0
+    val s = clipStarts(clips)
+    var i = 0
+    while (i + 1 < clips.size && ms >= s[i + 1]) i++
+    return i to (ms - s[i]).coerceIn(0, clips[i].lengthMs)
 }
 
 object TransitionMath {
@@ -1385,4 +1584,110 @@ object TransitionMath {
             if (uSize.x < -1.0 && uType < -1.0 && uP < -1.0 && uSide < -1.0 && uMode < -1.0) gl_FragColor = vec4(0.0);
         }
     """
+}
+
+/** What one clip does at its start (coming in) and end (going out) during export. */
+data class TransitionWindows(
+    val lengthMs: Long,
+    val inType: TransitionType, val inMs: Long, val inMode: Int,
+    val outType: TransitionType, val outMs: Long, val outMode: Int,
+)
+
+/** Export: runs the transition shader on a clip's first / last frames. */
+@UnstableApi
+class TransitionEffect(private val w: TransitionWindows) : GlEffect {
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram = TransitionProgram(w, useHdr)
+    override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean =
+        (w.inType == TransitionType.NONE || w.inMs <= 0) && (w.outType == TransitionType.NONE || w.outMs <= 0)
+}
+
+@UnstableApi
+private class TransitionProgram(private val w: TransitionWindows, useHdr: Boolean) : BaseGlShaderProgram(useHdr, 1) {
+    private val program: GlProgram = try {
+        GlProgram(TransitionMath.GLSL_VERTEX, TransitionMath.glslFor(w.inType, w.outType))
+    } catch (e: GlUtil.GlException) {
+        throw VideoFrameProcessingException(e)
+    }
+    private var width = 1f
+    private var height = 1f
+    private var t0 = Long.MIN_VALUE
+
+    init {
+        program.setBufferAttribute("aFramePosition", GlUtil.getNormalizedCoordinateBounds(), GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE)
+    }
+
+    override fun configure(inputWidth: Int, inputHeight: Int): Size {
+        width = inputWidth.toFloat(); height = inputHeight.toFloat()
+        return Size(inputWidth, inputHeight)
+    }
+
+    override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
+        if (t0 == Long.MIN_VALUE) t0 = presentationTimeUs
+        val local = (presentationTimeUs - t0) / 1000L
+        var type = 0f; var p = 0f; var side = 0f; var mode = 0f
+        if (w.inType != TransitionType.NONE && w.inMs > 0 && local < w.inMs) {
+            type = w.inType.id; p = (local.toFloat() / w.inMs).coerceIn(0f, 1f); side = 1f; mode = w.inMode.toFloat()
+        } else if (w.outType != TransitionType.NONE && w.outMs > 0 && local > w.lengthMs - w.outMs) {
+            type = w.outType.id; p = (1f - (w.lengthMs - local).toFloat() / w.outMs).coerceIn(0f, 1f); side = 0f; mode = w.outMode.toFloat()
+        }
+        try {
+            program.use()
+            program.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
+            // The compiler drops uniforms a transition doesn't use; setting one of those would fail, so each is optional.
+            fun set(n: String, v: Float) { try { program.setFloatUniform(n, v) } catch (_: RuntimeException) { ExportNotes.skipped("$n (${w.inType.label} / ${w.outType.label})") } }
+            try { program.setFloatsUniform("uSize", floatArrayOf(width, height)) } catch (_: RuntimeException) { ExportNotes.skipped("uSize (${w.inType.label} / ${w.outType.label})") }
+            set("uType", type); set("uP", p); set("uSide", side); set("uMode", mode)
+            program.bindAttributesAndUniforms()
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        } catch (e: GlUtil.GlException) {
+            throw VideoFrameProcessingException(e)
+        }
+    }
+
+    override fun release() {
+        super.release()
+        try { program.delete() } catch (e: GlUtil.GlException) { throw VideoFrameProcessingException(e) }
+    }
+}
+
+/** Live preview: applies a transition to a player's view (API 33+ shader, simple fade before that). */
+object TransitionPreview {
+    private val shaders = HashMap<android.view.View, Pair<TransitionType, Any?>>()
+
+    fun apply(view: android.view.View, t: TransitionType, p: Float, incoming: Boolean) {
+        val (tx, ty) = TransitionMath.move(t, p, incoming)
+        view.translationX = tx * view.width
+        view.translationY = ty * view.height
+        view.translationZ = if (incoming) 2f else 0f
+        val sh = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            val cur = shaders[view]
+            (if (cur != null && cur.first == t) cur.second else TransitionMath.shaderFor(t).also { shaders[view] = t to it }) as android.graphics.RuntimeShader?
+        } else null
+        if (sh != null && view.width > 0 && view.height > 0) {
+            view.alpha = 1f
+            sh.setFloatUniform("uSize", view.width.toFloat(), view.height.toFloat())
+            sh.setFloatUniform("uP", p)
+            sh.setFloatUniform("uSide", if (incoming) 1f else 0f)
+            sh.setFloatUniform("uMode", if (incoming && t.kind != TransitionKind.MOVE) 1f else 0f)
+            view.setRenderEffect(android.graphics.RenderEffect.createRuntimeShaderEffect(sh, "content"))
+        } else {
+            view.alpha = if (incoming) (if (t.kind == TransitionKind.MOVE) 1f else TransitionMath.uniformReveal(t, p).let { if (t.kind == TransitionKind.MASK) p else it }) else 1f
+        }
+    }
+
+    fun reset(view: android.view.View, visible: Boolean) {
+        view.translationX = 0f; view.translationY = 0f; view.translationZ = 0f
+        view.alpha = if (visible) 1f else 0f
+        if (android.os.Build.VERSION.SDK_INT >= 31) view.setRenderEffect(null)
+    }
+}
+
+
+/** Things the export had to leave out (shown as a short note when it finishes). */
+object ExportNotes {
+    private val items = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    fun clear() = items.clear()
+    fun skipped(what: String) { if (items.add(what)) { android.util.Log.w("ExportNotes", "skipped transition setting $what"); com.dronedirector.veyrocutpro.ui.AppLog.w("Export: transition setting skipped — $what") } }
+    /** A one-line note, or null when nothing was skipped. */
+    fun note(): String? = if (items.isEmpty()) null else "Note: ${items.size} transition setting(s) couldn't be applied and were skipped (${items.take(3).joinToString(", ")})"
 }

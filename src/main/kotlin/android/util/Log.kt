@@ -38,3 +38,9 @@ open class LruCache<K : Any, V : Any>(private val max: Int) {
     @Synchronized fun evictAll() { map.clear(); size = 0 }
     @Synchronized fun size() = size
 }
+
+class Range<T : Comparable<T>>(val lower: T, val upper: T) {
+    fun contains(v: T) = v >= lower && v <= upper
+    fun clamp(v: T): T = if (v < lower) lower else if (v > upper) upper else v
+    override fun toString() = "[$lower, $upper]"
+}

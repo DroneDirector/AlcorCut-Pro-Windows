@@ -90,10 +90,10 @@ fun CastPlaceSetting(screen: String) {
 
 /** The cast button: pick a TV, or stop casting. [source] gives the current picture. */
 @Composable
-fun CastButton(source: suspend () -> Bitmap?, modifier: Modifier = Modifier, small: Boolean = false) {
+fun CastButton(source: suspend () -> Bitmap?, modifier: Modifier = Modifier, small: Boolean = false, sound: com.dronedirector.veyrocutpro.camera.CastFeed.Sound = com.dronedirector.veyrocutpro.camera.CastFeed.Sound.MIC) {
     val src by androidx.compose.runtime.rememberUpdatedState(source)
     val stable: suspend () -> Bitmap? = androidx.compose.runtime.remember { suspend { src() } }
-    androidx.compose.runtime.DisposableEffect(Unit) { CastLink.use(stable); onDispose { CastLink.release(stable) } }
+    androidx.compose.runtime.DisposableEffect(Unit) { CastLink.use(stable); com.dronedirector.veyrocutpro.camera.CastFeed.setSound(sound); onDispose { CastLink.release(stable) } }
     var picking by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val on = CastLink.device != null
     val accent = Pro.Amber

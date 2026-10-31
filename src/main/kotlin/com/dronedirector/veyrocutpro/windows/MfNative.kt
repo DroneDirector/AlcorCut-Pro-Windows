@@ -38,6 +38,12 @@ object MfNative {
     @JvmStatic external fun decFrame(h: Long, data: ByteArray, ts: Long, dst: IntArray): Long
     @JvmStatic external fun decClose(h: Long)
     @JvmStatic external fun accel(): FloatArray?
+    @JvmStatic external fun fileOpen(path: String, kind: Int, maxW: Int, maxH: Int): Long
+    @JvmStatic external fun fileInfo(h: Long): LongArray?
+    @JvmStatic external fun fileSeek(h: Long, ts: Long): Boolean
+    @JvmStatic external fun fileVideo(h: Long, dst: IntArray): Long
+    @JvmStatic external fun fileAudio(h: Long, dst: ByteArray, time: LongArray): Int
+    @JvmStatic external fun fileClose(h: Long)
     @JvmStatic external fun ptpList(): Array<String>
     @JvmStatic external fun ptpOpen(id: String): Long
     @JvmStatic external fun ptpCommand(h: Long, op: Int, params: IntArray?, data: ByteArray?, read: Boolean): ByteArray?

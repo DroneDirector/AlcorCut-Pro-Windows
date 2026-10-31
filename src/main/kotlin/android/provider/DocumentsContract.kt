@@ -10,6 +10,7 @@ object DocumentsContract {
     const val EXTRA_INITIAL_URI = "android.provider.extra.INITIAL_URI"
     fun getTreeDocumentId(tree: Uri): String = tree.toFile()?.path ?: tree.toString()
     fun getDocumentId(u: Uri): String = u.toFile()?.path ?: u.toString()
+    fun buildDocumentUri(authority: String?, id: String): Uri = Uri.fromFile(java.io.File(id))
     fun buildDocumentUriUsingTree(tree: Uri, id: String): Uri = Uri.fromFile(File(id))
     fun buildChildDocumentsUriUsingTree(tree: Uri, id: String): Uri = Uri.fromFile(File(id))
     fun isDocumentUri(c: Context?, u: Uri?): Boolean = u?.scheme == "file"

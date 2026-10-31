@@ -44,6 +44,7 @@ open class Context {
     }
 
     open val applicationContext: Context get() = app
+    fun checkSelfPermission(p: String): Int = android.content.pm.PackageManager.PERMISSION_GRANTED
     open val filesDir: File get() = File(root, "files").apply { mkdirs() }
     open val cacheDir: File get() = File(root, "cache").apply { mkdirs() }
     open val packageName: String get() = "com.dronedirector.alcorcutpro"
@@ -213,6 +214,12 @@ class ContentResolver {
     /** A small picture of an image file (long side about [size]). */
     fun loadThumbnail(u: Uri, size: android.util.Size, signal: Any?): android.graphics.Bitmap {
         val f = u.toFile() ?: throw java.io.FileNotFoundException(u.toString())
+        if (f.extension.lowercase() in com.dronedirector.veyrocutpro.windows.MediaFiles.videoExt) {
+            android.media.MediaMetadataRetriever().use { r ->
+                r.setDataSource(f.path)
+                return r.getScaledFrameAtTime(0, 0, size.width, size.height) ?: throw java.io.IOException("Can't read " + f.name)
+            }
+        }
         val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         android.graphics.BitmapFactory.decodeFile(f.path, o)
         var s = 1

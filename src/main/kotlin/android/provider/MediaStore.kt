@@ -29,6 +29,7 @@ object MediaStore {
             const val _ID = "_id"
             const val WIDTH = "width"
             const val HEIGHT = "height"
+            const val VOLUME_NAME = "volume_name"
         }
     }
 

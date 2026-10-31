@@ -68,14 +68,18 @@ fun main(args: Array<String>) {
     Thread { Thread.sleep(25_000); com.dronedirector.veyrocutpro.ui.SafeMode.healthy(app) }.apply { isDaemon = true }.start()
     // A photo opened with the app ("Open with" in Windows), or a desktop shortcut (--screen=capture / photo).
     var opened = args.firstOrNull { !it.startsWith("--") }?.let { File(it) }?.takeIf { it.isFile }?.let { Uri.fromFile(it) }
+    // A video opened with the app goes to the video editor.
+    if (opened != null && opened.toFile()?.extension?.lowercase() in com.dronedirector.veyrocutpro.windows.MediaFiles.videoExt) { openedVideos = listOf(opened!!); opened = null }
     val asked = args.firstOrNull { it.startsWith("--screen=") }?.substringAfter('=')
     screen.value = when {
         opened != null -> S.PHOTO_EDITOR
+        openedVideos.isNotEmpty() -> S.VIDEO_EDITOR
         asked == "capture" -> S.CAPTURE
         asked == "photo" -> S.PHOTO_EDITOR
-        asked == "video" || asked == "editor" -> S.EDITOR
+        asked == "video" -> S.VIDEO_EDITOR
+        asked == "editor" -> S.EDITOR
         com.dronedirector.veyrocutpro.ui.SafeMode.offer -> S.HOME
-        else -> com.dronedirector.veyrocutpro.ui.StartScreen.get(app).let { if (it == S.VIDEO_EDITOR) S.EDITOR else it }
+        else -> com.dronedirector.veyrocutpro.ui.StartScreen.get(app)
     }
     com.dronedirector.veyrocutpro.ui.AudioHardware.start(app)
     application {
@@ -137,6 +141,9 @@ private val screen = mutableStateOf(com.dronedirector.veyrocutpro.ui.AppScreen.H
 /** The camera (one for the whole app, like on the phone). */
 private val controller by lazy { com.dronedirector.veyrocutpro.camera.ProCameraController(Context.app) }
 
+/** Videos opened with the app ("Open with" in Windows). */
+private var openedVideos: List<Uri> = emptyList()
+
 @androidx.compose.runtime.Composable
 private fun Screens(opened: Uri?) {
     androidx.compose.animation.Crossfade(screen.value, label = "screen") { s ->
@@ -151,15 +158,18 @@ private fun Screens(opened: Uri?) {
             }
             S.EDITOR -> com.dronedirector.veyrocutpro.ui.EditorHub(
                 onPhoto = { screen.value = S.PHOTO_EDITOR },
-                onVideo = { Toast.makeText(null, I18n.tr("The video editor comes to Windows in a later update"), Toast.LENGTH_LONG).show() },
+                onVideo = { screen.value = S.VIDEO_EDITOR },
                 onBack = { screen.value = S.HOME },
             )
             S.PHOTO_EDITOR -> PhotoEditorScreen(
-                onOpenVideo = { Toast.makeText(null, I18n.tr("The video editor comes to Windows in a later update"), Toast.LENGTH_LONG).show() },
+                onOpenVideo = { screen.value = S.VIDEO_EDITOR },
                 onExit = { screen.value = S.EDITOR },
                 initial = opened,
             )
-            S.VIDEO_EDITOR -> { androidx.compose.runtime.LaunchedEffect(Unit) { screen.value = S.EDITOR } }
+            S.VIDEO_EDITOR -> com.dronedirector.veyrocutpro.editor.VideoEditorScreen(
+                onExit = { screen.value = S.EDITOR },
+                initialUris = openedVideos.also { openedVideos = emptyList() },
+            )
         }
     }
 }

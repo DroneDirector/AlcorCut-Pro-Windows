@@ -68,7 +68,72 @@ class AudioRecord(source: Int, private val rate: Int, channelMask: Int, encoding
 
 class AudioTimestamp { var framePosition = 0L; var nanoTime = 0L; companion object { const val TIMEBASE_MONOTONIC = 0 } }
 
-object MediaRecorder { object AudioSource { const val DEFAULT = 0; const val MIC = 1; const val CAMCORDER = 5; const val VOICE_RECOGNITION = 6; const val UNPROCESSED = 9 } }
+/**
+ * Sound recording to a file (voiceover): the microphone (Audio hardware's choice) to AAC in an .m4a
+ * with Windows' encoder. Own code.
+ */
+class MediaRecorder() {
+    constructor(context: android.content.Context) : this()
+    object AudioSource { const val DEFAULT = 0; const val MIC = 1; const val CAMCORDER = 5; const val VOICE_RECOGNITION = 6; const val UNPROCESSED = 9 }
+    object OutputFormat { const val DEFAULT = 0; const val THREE_GPP = 1; const val MPEG_4 = 2; const val AAC_ADTS = 6; const val OGG = 11 }
+    object AudioEncoder { const val DEFAULT = 0; const val AMR_NB = 1; const val AAC = 3; const val HE_AAC = 4; const val OPUS = 7 }
+    private var path: String? = null
+    private var rate = 48000
+    private var bitrate = 160_000
+    @Volatile private var running = false
+    private var thread: Thread? = null
+    @Volatile private var peak = 0
+    fun setAudioSource(s: Int) {}
+    fun setOutputFormat(f: Int) {}
+    fun setAudioEncoder(e: Int) {}
+    fun setAudioEncodingBitRate(b: Int) { bitrate = b }
+    fun setAudioSamplingRate(r: Int) { rate = r }
+    fun setAudioChannels(c: Int) {}
+    fun setOutputFile(p: String) { path = p }
+    fun setOutputFile(f: java.io.File) { path = f.path }
+    fun prepare() { if (path == null) throw IllegalStateException("No output file") }
+    val maxAmplitude: Int get() { val p = peak; peak = 0; return p }
+    fun start() {
+        val rec = AudioRecord(AudioSource.MIC, 48000, AudioFormat.CHANNEL_IN_STEREO, AudioFormat.ENCODING_PCM_16BIT, 1 shl 15)
+        if (rec.state != AudioRecord.STATE_INITIALIZED) throw IllegalStateException("No microphone")
+        val nat = com.dronedirector.veyrocutpro.windows.MfNative
+        val h = if (nat.ok) nat.recOpen(path!!, 0, 0, 30, 1, 0, false, 48000, 2) else 0L
+        if (nat.ok && h == 0L) { rec.release(); throw IllegalStateException(nat.error()) }
+        val wav = if (h == 0L) java.io.RandomAccessFile(path!!, "rw").also { it.setLength(0); it.write(ByteArray(44)) } else null
+        running = true
+        rec.startRecording()
+        thread = Thread({
+            val ch = rec.channelCount
+            val raw = ShortArray(1024 * ch); val pcm = ByteArray(1024 * 4); var frames = 0L
+            try {
+                while (running) {
+                    val got = rec.read(raw, 0, raw.size); if (got <= 0) continue
+                    val n = got / ch
+                    for (i in 0 until n) for (c in 0..1) {
+                        val v = raw[i * ch + (if (ch == 2) c else 0)].toInt()
+                        if (kotlin.math.abs(v) > peak) peak = kotlin.math.abs(v)
+                        pcm[i * 4 + c * 2] = v.toByte(); pcm[i * 4 + c * 2 + 1] = (v shr 8).toByte()
+                    }
+                    if (h != 0L) nat.recAudio(h, pcm, n * 4, frames * 10_000_000 / 48000, n * 10_000_000L / 48000) else wav!!.write(pcm, 0, n * 4)
+                    frames += n
+                }
+            } finally {
+                rec.stop(); rec.release()
+                if (h != 0L) nat.recClose(h)
+                wav?.let { w -> val len = w.length() - 44; w.seek(0); w.write(wavHeader(len)); w.close() }
+            }
+        }, "voice-rec").apply { isDaemon = true; start() }
+    }
+    private fun wavHeader(len: Long): ByteArray = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN).apply {
+        put("RIFF".toByteArray()); putInt((len + 36).toInt()); put("WAVEfmt ".toByteArray()); putInt(16); putShort(1); putShort(2); putInt(48000); putInt(48000 * 4); putShort(4); putShort(16)
+        put("data".toByteArray()); putInt(len.toInt())
+    }.array()
+    fun stop() { running = false; thread?.join(3000); thread = null }
+    fun pause() {}
+    fun resume() {}
+    fun reset() { stop() }
+    fun release() { if (running) stop() }
+}
 
 /** A Windows sound device (Java Sound mixer). */
 class AudioDeviceInfo(val mixerName: String, val isSource: Boolean) {

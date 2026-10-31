@@ -191,6 +191,9 @@ class Canvas(private var bmp: Bitmap? = null) {
     fun drawRoundRect(l: Float, t: Float, r: Float, b: Float, rx: Float, ry: Float, p: Paint) = drawRoundRect(RectF(l, t, r, b), rx, ry, p)
     fun drawCircle(cx: Float, cy: Float, r: Float, p: Paint) = shape(Ellipse2D.Float(cx - r, cy - r, 2 * r, 2 * r), p)
     fun drawOval(r: RectF, p: Paint) = shape(Ellipse2D.Float(r.left, r.top, r.width(), r.height()), p)
+    fun drawArc(r: RectF, start: Float, sweep: Float, useCenter: Boolean, p: Paint) =
+        shape(java.awt.geom.Arc2D.Float(r.left, r.top, r.width(), r.height(), -start, -sweep, if (useCenter) java.awt.geom.Arc2D.PIE else java.awt.geom.Arc2D.OPEN), p)
+    fun drawArc(l: Float, t: Float, r: Float, b: Float, start: Float, sweep: Float, useCenter: Boolean, p: Paint) = drawArc(RectF(l, t, r, b), start, sweep, useCenter, p)
     fun drawLine(x0: Float, y0: Float, x1: Float, y1: Float, p: Paint) = shape(Line2D.Float(x0, y0, x1, y1), Paint(p).apply { style = Paint.Style.STROKE })
     fun drawPath(path: Path, p: Paint) = shape(path.shape, p)
     fun drawPoint(x: Float, y: Float, p: Paint) = drawCircle(x, y, maxOf(0.5f, p.strokeWidth / 2), Paint(p).apply { style = Paint.Style.FILL })

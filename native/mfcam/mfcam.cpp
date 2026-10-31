@@ -21,6 +21,7 @@
 #include <vector>
 #include <mutex>
 #include <cstdio>
+#include <algorithm>
 
 template <class T> static void release(T*& p) { if (p) { p->Release(); p = nullptr; } }
 
@@ -301,28 +302,31 @@ JNIEXPORT jlong JNICALL JN(recOpen)(JNIEnv* env, jclass, jstring jpath, jint w, 
     release(a);
     if (FAILED(hr)) { fail("The video file couldn't be created", hr); delete r; return 0; }
 
-    IMFMediaType* out = nullptr; IMFMediaType* in = nullptr;
-    hr = MFCreateMediaType(&out);
-    if (SUCCEEDED(hr)) out->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-    if (SUCCEEDED(hr)) out->SetGUID(MF_MT_SUBTYPE, hevc ? MFVideoFormat_HEVC : MFVideoFormat_H264);
-    if (SUCCEEDED(hr)) out->SetUINT32(MF_MT_AVG_BITRATE, (UINT32)bitrate);
-    if (SUCCEEDED(hr)) out->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-    if (SUCCEEDED(hr)) MFSetAttributeSize(out, MF_MT_FRAME_SIZE, w, h);
-    if (SUCCEEDED(hr)) MFSetAttributeRatio(out, MF_MT_FRAME_RATE, fpsNum, fpsDen);
-    if (SUCCEEDED(hr)) MFSetAttributeRatio(out, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-    if (SUCCEEDED(hr) && !hevc) out->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High);
-    if (SUCCEEDED(hr)) hr = r->writer->AddStream(out, &r->video);
-    if (SUCCEEDED(hr)) hr = MFCreateMediaType(&in);
-    if (SUCCEEDED(hr)) in->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-    if (SUCCEEDED(hr)) in->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
-    if (SUCCEEDED(hr)) in->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-    if (SUCCEEDED(hr)) in->SetUINT32(MF_MT_DEFAULT_STRIDE, (UINT32)(w * 4));
-    if (SUCCEEDED(hr)) MFSetAttributeSize(in, MF_MT_FRAME_SIZE, w, h);
-    if (SUCCEEDED(hr)) MFSetAttributeRatio(in, MF_MT_FRAME_RATE, fpsNum, fpsDen);
-    if (SUCCEEDED(hr)) MFSetAttributeRatio(in, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-    if (SUCCEEDED(hr)) hr = r->writer->SetInputMediaType(r->video, in, nullptr);
-    release(out); release(in);
-    if (FAILED(hr)) { fail(hevc ? "No HEVC encoder on this PC" : "No H.264 encoder on this PC", hr); release(r->writer); delete r; return 0; }
+    // Pictures (none for a sound-only file: w = 0).
+    if (w > 0 && h > 0) {
+        IMFMediaType* out = nullptr; IMFMediaType* in = nullptr;
+        hr = MFCreateMediaType(&out);
+        if (SUCCEEDED(hr)) out->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        if (SUCCEEDED(hr)) out->SetGUID(MF_MT_SUBTYPE, hevc ? MFVideoFormat_HEVC : MFVideoFormat_H264);
+        if (SUCCEEDED(hr)) out->SetUINT32(MF_MT_AVG_BITRATE, (UINT32)bitrate);
+        if (SUCCEEDED(hr)) out->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+        if (SUCCEEDED(hr)) MFSetAttributeSize(out, MF_MT_FRAME_SIZE, w, h);
+        if (SUCCEEDED(hr)) MFSetAttributeRatio(out, MF_MT_FRAME_RATE, fpsNum, fpsDen);
+        if (SUCCEEDED(hr)) MFSetAttributeRatio(out, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+        if (SUCCEEDED(hr) && !hevc) out->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High);
+        if (SUCCEEDED(hr)) hr = r->writer->AddStream(out, &r->video);
+        if (SUCCEEDED(hr)) hr = MFCreateMediaType(&in);
+        if (SUCCEEDED(hr)) in->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        if (SUCCEEDED(hr)) in->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+        if (SUCCEEDED(hr)) in->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+        if (SUCCEEDED(hr)) in->SetUINT32(MF_MT_DEFAULT_STRIDE, (UINT32)(w * 4));
+        if (SUCCEEDED(hr)) MFSetAttributeSize(in, MF_MT_FRAME_SIZE, w, h);
+        if (SUCCEEDED(hr)) MFSetAttributeRatio(in, MF_MT_FRAME_RATE, fpsNum, fpsDen);
+        if (SUCCEEDED(hr)) MFSetAttributeRatio(in, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+        if (SUCCEEDED(hr)) hr = r->writer->SetInputMediaType(r->video, in, nullptr);
+        release(out); release(in);
+        if (FAILED(hr)) { fail(hevc ? "No HEVC encoder on this PC" : "No H.264 encoder on this PC", hr); release(r->writer); delete r; return 0; }
+    }
 
     if (rate > 0) {
         IMFMediaType* ao = nullptr; IMFMediaType* ai = nullptr;
@@ -935,6 +939,192 @@ JNIEXPORT jfloatArray JNICALL JN(accel)(JNIEnv* env, jclass) {
     jfloatArray a = env->NewFloatArray(3);
     env->SetFloatArrayRegion(a, 0, 3, v);
     return a;
+}
+
+// ---------------------------------------------------------------- video files (the video editor)
+
+struct VFile {
+    IMFSourceReader* reader = nullptr;
+    bool video = true;
+    UINT32 w = 0, h = 0, srcW = 0, srcH = 0, fpsN = 0, fpsD = 1, rotation = 0;
+    UINT32 rate = 48000, channels = 2;
+    LONGLONG duration = 0;
+    bool hasAudio = false, hasVideo = false;
+    std::mutex lock;
+};
+
+/** Copies a 32-bit RGB sample into dst (w*h ARGB, top row first). */
+static bool copyRgb32(IMFSample* s, UINT32 w, UINT32 hh, JNIEnv* env, jintArray dst) {
+    IMFMediaBuffer* b = nullptr; bool ok = false;
+    if (FAILED(s->ConvertToContiguousBuffer(&b))) return false;
+    if (env->GetArrayLength(dst) >= (jsize)(w * hh) && w > 0 && hh > 0) {
+        BYTE* base = nullptr; LONG pitch = 0; bool locked2d = false;
+        IMF2DBuffer* b2 = nullptr;
+        if (SUCCEEDED(b->QueryInterface(IID_PPV_ARGS(&b2))) && SUCCEEDED(b2->Lock2D(&base, &pitch))) locked2d = true;
+        DWORD max = 0, len = 0;
+        if (!locked2d) {
+            if (SUCCEEDED(b->Lock(&base, &max, &len))) {
+                pitch = -(LONG)(w * 4);
+                if (len >= w * hh * 4) base = base + (size_t)(hh - 1) * w * 4; else base = nullptr;
+            } else base = nullptr;
+        }
+        if (base) {
+            jint* out = (jint*)env->GetPrimitiveArrayCritical(dst, nullptr);
+            if (out) {
+                for (UINT32 y = 0; y < hh; y++) {
+                    const DWORD* row = (const DWORD*)(base + (LONG_PTR)pitch * (LONG_PTR)y);
+                    jint* o = out + (size_t)y * w;
+                    for (UINT32 x = 0; x < w; x++) o[x] = (jint)(row[x] | 0xFF000000u);
+                }
+                env->ReleasePrimitiveArrayCritical(dst, out, 0);
+                ok = true;
+            }
+            if (locked2d) b2->Unlock2D(); else b->Unlock();
+        }
+        release(b2);
+    }
+    b->Release();
+    return ok;
+}
+
+/**
+ * Opens a video or sound file. kind 0 = pictures (32-bit RGB, scaled to fit maxW x maxH when given,
+ * 0 = full size), kind 1 = sound (16-bit PCM, 48 kHz stereo). Returns a handle or 0.
+ */
+JNIEXPORT jlong JNICALL JN(fileOpen)(JNIEnv* env, jclass, jstring jpath, jint kind, jint maxW, jint maxH) {
+    com();
+    std::wstring path = wide(env, jpath);
+    IMFAttributes* attr = nullptr;
+    MFCreateAttributes(&attr, 3);
+    attr->SetUINT32(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
+    attr->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+    IMFSourceReader* r = nullptr;
+    HRESULT hr = MFCreateSourceReaderFromURL(path.c_str(), attr, &r);
+    release(attr);
+    if (FAILED(hr) || !r) { fail("Couldn't open the file", hr); return 0; }
+    VFile* f = new VFile(); f->reader = r; f->video = kind == 0;
+    PROPVARIANT pv; PropVariantInit(&pv);
+    if (SUCCEEDED(r->GetPresentationAttribute((DWORD)MF_SOURCE_READER_MEDIASOURCE, MF_PD_DURATION, &pv))) f->duration = (LONGLONG)pv.uhVal.QuadPart;
+    PropVariantClear(&pv);
+    IMFMediaType* nt = nullptr;
+    if (SUCCEEDED(r->GetNativeMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &nt))) {
+        f->hasVideo = true;
+        MFGetAttributeSize(nt, MF_MT_FRAME_SIZE, &f->srcW, &f->srcH);
+        MFGetAttributeRatio(nt, MF_MT_FRAME_RATE, &f->fpsN, &f->fpsD);
+        f->rotation = MFGetAttributeUINT32(nt, MF_MT_VIDEO_ROTATION, 0);
+        release(nt);
+    }
+    if (SUCCEEDED(r->GetNativeMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, &nt))) { f->hasAudio = true; release(nt); }
+    r->SetStreamSelection((DWORD)MF_SOURCE_READER_ALL_STREAMS, FALSE);
+    if (f->video && f->hasVideo) {
+        r->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+        UINT32 w = f->srcW & ~1u, h = f->srcH & ~1u;
+        if (maxW > 0 && maxH > 0 && (w > (UINT32)maxW || h > (UINT32)maxH)) {
+            double k = (std::min)((double)maxW / w, (double)maxH / h);
+            w = ((UINT32)(w * k)) & ~1u; h = ((UINT32)(h * k)) & ~1u;
+            if (w < 2) w = 2; if (h < 2) h = 2;
+        }
+        IMFMediaType* t = nullptr; MFCreateMediaType(&t);
+        t->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+        t->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+        MFSetAttributeSize(t, MF_MT_FRAME_SIZE, w, h);
+        hr = r->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, t);
+        if (FAILED(hr)) {   // without scaling
+            t->DeleteItem(MF_MT_FRAME_SIZE);
+            hr = r->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, nullptr, t);
+        }
+        release(t);
+        if (FAILED(hr)) { fail("This video can't be decoded on this PC", hr); r->Release(); delete f; return 0; }
+        IMFMediaType* ct = nullptr;
+        if (SUCCEEDED(r->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &ct))) { MFGetAttributeSize(ct, MF_MT_FRAME_SIZE, &f->w, &f->h); release(ct); }
+    } else if (kind == 1 && f->hasAudio) {
+        r->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, TRUE);
+        IMFMediaType* t = nullptr; MFCreateMediaType(&t);
+        t->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+        t->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+        t->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
+        t->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, 48000);
+        t->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, 2);
+        t->SetUINT32(MF_MT_AUDIO_BLOCK_ALIGNMENT, 4);
+        t->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 48000 * 4);
+        hr = r->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, nullptr, t);
+        release(t);
+        if (FAILED(hr)) { fail("This sound can't be decoded on this PC", hr); r->Release(); delete f; return 0; }
+    } else if (!f->hasVideo && f->video) {
+        // A sound-only file opened for pictures: info only.
+    }
+    return (jlong)f;
+}
+
+/** duration (100 ns), source width, height, fps numerator, denominator, rotation, has video, has audio, output width, height. */
+JNIEXPORT jlongArray JNICALL JN(fileInfo)(JNIEnv* env, jclass, jlong h) {
+    VFile* f = (VFile*)h; if (!f) return nullptr;
+    jlong v[10] = { f->duration, f->srcW, f->srcH, f->fpsN, f->fpsD, f->rotation, f->hasVideo, f->hasAudio, f->w, f->h };
+    jlongArray a = env->NewLongArray(10); env->SetLongArrayRegion(a, 0, 10, v); return a;
+}
+
+/** Jumps to ts (100 ns); the next read gives the first frame at or before it (the key frame). */
+JNIEXPORT jboolean JNICALL JN(fileSeek)(JNIEnv* env, jclass, jlong h, jlong ts) {
+    com();
+    VFile* f = (VFile*)h; if (!f) return JNI_FALSE;
+    std::lock_guard<std::mutex> g(f->lock);
+    PROPVARIANT pv; PropVariantInit(&pv); pv.vt = VT_I8; pv.hVal.QuadPart = ts < 0 ? 0 : ts;
+    HRESULT hr = f->reader->SetCurrentPosition(GUID_NULL, pv);
+    PropVariantClear(&pv);
+    return SUCCEEDED(hr) ? JNI_TRUE : JNI_FALSE;
+}
+
+/** The next picture into dst (output width x height); returns its time (100 ns), -1 at the end, -2 on error. */
+JNIEXPORT jlong JNICALL JN(fileVideo)(JNIEnv* env, jclass, jlong h, jintArray dst) {
+    com();
+    VFile* f = (VFile*)h; if (!f || !f->video) return -2;
+    std::lock_guard<std::mutex> g(f->lock);
+    for (int tries = 0; tries < 50; tries++) {
+        DWORD stream = 0, flags = 0; LONGLONG ts = 0; IMFSample* s = nullptr;
+        HRESULT hr = f->reader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, 0, &stream, &flags, &ts, &s);
+        if (FAILED(hr)) { fail("Reading the video failed", hr); return -2; }
+        if (flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED) {
+            IMFMediaType* ct = nullptr;
+            if (SUCCEEDED(f->reader->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &ct))) { MFGetAttributeSize(ct, MF_MT_FRAME_SIZE, &f->w, &f->h); release(ct); }
+        }
+        if (flags & (MF_SOURCE_READERF_ENDOFSTREAM | MF_SOURCE_READERF_ERROR)) { release(s); return -1; }
+        if (!s) continue;
+        bool ok = copyRgb32(s, f->w, f->h, env, dst);
+        s->Release();
+        return ok ? (ts < 0 ? 0 : ts) : -3;
+    }
+    return -2;
+}
+
+/** The next block of sound (16-bit stereo, 48 kHz, little-endian) into dst; returns bytes written (0 = none yet, -1 = end). time[0] = its time (100 ns). */
+JNIEXPORT jint JNICALL JN(fileAudio)(JNIEnv* env, jclass, jlong h, jbyteArray dst, jlongArray time) {
+    com();
+    VFile* f = (VFile*)h; if (!f || f->video) return -2;
+    std::lock_guard<std::mutex> g(f->lock);
+    DWORD stream = 0, flags = 0; LONGLONG ts = 0; IMFSample* s = nullptr;
+    HRESULT hr = f->reader->ReadSample((DWORD)MF_SOURCE_READER_FIRST_AUDIO_STREAM, 0, &stream, &flags, &ts, &s);
+    if (FAILED(hr)) { fail("Reading the sound failed", hr); return -2; }
+    if (flags & (MF_SOURCE_READERF_ENDOFSTREAM | MF_SOURCE_READERF_ERROR)) { release(s); return -1; }
+    if (!s) return 0;
+    IMFMediaBuffer* b = nullptr; jint n = 0;
+    if (SUCCEEDED(s->ConvertToContiguousBuffer(&b))) {
+        BYTE* p = nullptr; DWORD max = 0, len = 0;
+        if (SUCCEEDED(b->Lock(&p, &max, &len))) {
+            n = (jint)(std::min)((DWORD)env->GetArrayLength(dst), len);
+            env->SetByteArrayRegion(dst, 0, n, (const jbyte*)p);
+            b->Unlock();
+        }
+        b->Release();
+    }
+    s->Release();
+    jlong t = ts; env->SetLongArrayRegion(time, 0, 1, &t);
+    return n;
+}
+
+JNIEXPORT void JNICALL JN(fileClose)(JNIEnv* env, jclass, jlong h) {
+    VFile* f = (VFile*)h; if (!f) return;
+    { std::lock_guard<std::mutex> g(f->lock); release(f->reader); }
+    delete f;
 }
 
 } // extern "C"

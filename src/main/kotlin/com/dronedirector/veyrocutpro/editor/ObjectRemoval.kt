@@ -51,6 +51,8 @@ object ObjectRemoval {
         } catch (t: Throwable) { failed = t.message ?: t.javaClass.simpleName; false }
     }
 
+    fun outFile(context: Context, c: Clip, maskId: String) =
+        File(File(context.filesDir, "edits").apply { mkdirs() }, "erase_${listOf(c.uri.toString(), c.startMs, c.endMs, maskId).hashCode().toUInt().toString(16)}.mp4")
 
     /** One frame being worked on (working size). */
     private class F(val t: Long, val px: IntArray, val hole: BooleanArray, var fwd: FloatArray? = null, var bwd: FloatArray? = null)
@@ -58,6 +60,166 @@ object ObjectRemoval {
     /** The filled part of one frame: [rect] (working px), its pixels and how much each replaces (0..255). */
     private class Patch(val rect: Rect, val jpeg: ByteArray, val alpha: ByteArray)
 
+    /**
+     * Removes the object followed by [track] from [c] (blocking, slow: minutes for a long clip).
+     * Returns the new file, or null.
+     */
+    fun make(context: Context, c: Clip, track: MaskTrack, maskId: String, onProgress: (Int) -> Unit, stop: () -> Boolean): File? {
+        if (!MorphNative.available) return null
+        val out = outFile(context, c, maskId)
+        if (out.exists() && out.length() > 4096) return out
+        val canPaint = ready(context)
+        val total = (c.endMs - c.startMs).coerceAtLeast(1)
+        // ---- Pass 1: fill at working size.
+        val patches = java.util.TreeMap<Long, Patch>()
+        val win = ArrayDeque<F>()
+        var ww = 0; var wh = 0; var fw = 0; var fh = 0
+        var memory: IntArray? = null; var memValid: BooleanArray? = null
+        var lastPaint = -1000
+        var index = 0
+
+        fun flowSize(b: Bitmap) = Bitmap.createScaledBitmap(b, fw, fh, true)
+        fun toBmp(px: IntArray) = Bitmap.createBitmap(px, ww, wh, Bitmap.Config.ARGB_8888)
+
+        fun finish(cur: F, k: Int) {
+            val holeIdx = cur.hole.indices.filter { cur.hole[it] }
+            val res = cur.px.copyOf()
+            if (holeIdx.isEmpty()) { patches[cur.t] = Patch(Rect(0, 0, 0, 0), ByteArray(0), ByteArray(0)); return }
+            val filled = BooleanArray(cur.px.size)
+            val list = win.toList()
+            val ci = k
+            // 2. Look along the motion into the frames before and after.
+            val sx = fw.toFloat() / ww; val sy = fh.toFloat() / wh
+            for (p in holeIdx) {
+                val x0 = (p % ww).toFloat(); val y0 = (p / ww).toFloat()
+                var r = 0f; var g = 0f; var b = 0f; var wsum = 0f
+                for (dir in intArrayOf(1, -1)) {
+                    var x = x0; var y = y0; var j = ci
+                    for (step in 1..R) {
+                        // Frame j's own flow to its neighbour (forward: j → j+1, backward: j → j−1).
+                        val fl = (if (dir > 0) list.getOrNull(j)?.fwd else list.getOrNull(j)?.bwd) ?: break
+                        // Motion of the background at (x, y), sampled from the small flow field.
+                        val fx = (x * sx).coerceIn(0f, fw - 1f); val fy = (y * sy).coerceIn(0f, fh - 1f)
+                        val ix = fx.toInt(); val iy = fy.toInt(); val q = (iy * fw + ix) * 2
+                        x += fl[q] / sx; y += fl[q + 1] / sy
+                        j += dir
+                        if (x < 0 || y < 0 || x >= ww - 1 || y >= wh - 1) break
+                        val o = list.getOrNull(j) ?: break
+                        val xi = x.toInt(); val yi = y.toInt(); val idx = yi * ww + xi
+                        if (!o.hole[idx] && !o.hole[idx + 1] && !o.hole[idx + ww]) {
+                            val c0 = bilinear(o.px, ww, x, y)
+                            val w = 1f / step
+                            r += ((c0 shr 16) and 255) * w; g += ((c0 shr 8) and 255) * w; b += (c0 and 255) * w; wsum += w
+                            break
+                        }
+                    }
+                }
+                if (wsum > 0f) { res[p] = (0xFF shl 24) or ((r / wsum).roundToInt() shl 16) or ((g / wsum).roundToInt() shl 8) or (b / wsum).roundToInt(); filled[p] = true }
+            }
+            // 3. Never seen: carry the painted background along with the motion, and paint it again now and then.
+            val back = cur.bwd   // this frame → the previous one
+            val mem = memory; val mv = memValid
+            if (mem != null && mv != null && back != null) {
+                val nm = IntArray(mem.size); val nv = BooleanArray(mem.size)
+                for (p in mem.indices) {
+                    val x = (p % ww).toFloat(); val y = (p / ww).toFloat()
+                    val fx = (x * sx).coerceIn(0f, fw - 1f); val fy = (y * sy).coerceIn(0f, fh - 1f)
+                    val q = (fy.toInt() * fw + fx.toInt()) * 2
+                    val px = x + back[q] / sx; val py = y + back[q + 1] / sy
+                    if (px < 0 || py < 0 || px >= ww - 1 || py >= wh - 1) continue
+                    val i0 = py.toInt() * ww + px.toInt()
+                    if (!mv[i0]) continue
+                    nm[p] = bilinear(mem, ww, px, py); nv[p] = true
+                }
+                memory = nm; memValid = nv
+            } else { memory = null; memValid = null }
+            val missing = holeIdx.filter { !filled[it] && !(memValid?.get(it) ?: false) }
+            if (canPaint && missing.size > 30) {
+                // Paint only what nobody has seen yet, with everything else (seen or painted before) as context,
+                // so earlier painting is kept and the fill stays steady.
+                val ctx = res.copyOf()
+                val mem0 = memory; val mv0 = memValid
+                if (mem0 != null && mv0 != null) for (p in holeIdx) if (!filled[p] && mv0[p]) ctx[p] = mem0[p]
+                val paint = paint(ctx, missing.toHashSet(), ww, wh)
+                if (paint != null) {
+                    val nm = memory ?: IntArray(res.size); val nv = memValid ?: BooleanArray(res.size)
+                    for (p in missing) { nm[p] = paint[p]; nv[p] = true }
+                    memory = nm; memValid = nv; lastPaint = index
+                }
+            }
+            val mm = memory; val mmv = memValid
+            for (p in holeIdx) if (!filled[p]) {
+                if (mm != null && mmv != null && mmv[p]) res[p] = mm[p]
+                else res[p] = nearestFill(res, cur.hole, filled, ww, wh, p)
+            }
+            // Keep the painted memory in step with what was really seen this frame (it's the background too).
+            if (mm != null && mmv != null) for (p in holeIdx) if (filled[p]) { mm[p] = res[p]; mmv[p] = true }
+            patches[cur.t] = makePatch(res, cur.hole, ww, wh)
+        }
+
+        try {
+            FrameReader.read(context, c.uri, c.startMs, c.endMs, WORK, 0) { t, bmp ->
+                if (stop()) return@read false
+                if (ww == 0) {
+                    ww = bmp.width; wh = bmp.height
+                    val k = FLOW.toFloat() / max(ww, wh); fw = (ww * k).roundToInt().coerceAtLeast(16); fh = (wh * k).roundToInt().coerceAtLeast(16)
+                }
+                val b = if (bmp.width == ww && bmp.height == wh) bmp else Bitmap.createScaledBitmap(bmp, ww, wh, true)
+                val px = IntArray(ww * wh); b.getPixels(px, 0, ww, 0, 0, ww, wh)
+                val f = F(t, px, holeOf(track.at(t), ww, wh))
+                win.lastOrNull()?.let { prev ->
+                    val a = flowSize(toBmp(prev.px)); val bb = flowSize(b)
+                    val fwd = FloatArray(fw * fh * 2); val bwd = FloatArray(fw * fh * 2)
+                    if (MorphNative.flow(a, bb, fwd) && MorphNative.flow(bb, a, bwd)) {
+                        // The flow inside the object follows the object; replace it with the background's motion around it.
+                        complete(fwd, prev.hole, ww, wh, fw, fh); complete(bwd, f.hole, ww, wh, fw, fh)
+                        prev.fwd = fwd; f.bwd = bwd
+                    }
+                }
+                win.addLast(f)
+                // Work on the frame R behind, once R frames after it are known.
+                if (win.size > 2 * R + 1) win.removeFirst()
+                val ready = win.size - 1 - R
+                if (ready >= 0 && win.size >= R + 1) {
+                    val target = win[ready]
+                    if (!patches.containsKey(target.t)) { finish(target, ready); index++ }
+                }
+                onProgress(((t - c.startMs) * 70 / total).toInt().coerceIn(0, 70))
+                true
+            }
+            if (stop()) return null
+            // The last frames (no frames after them).
+            for (k in win.indices) if (!patches.containsKey(win[k].t)) { finish(win[k], k); index++ }
+            if (patches.isEmpty()) return null
+            // ---- Pass 2: the full-size picture with the filled part laid in.
+            val tmp = File(out.path + ".part"); tmp.delete()
+            var wr: FlowRetime.Writer? = null
+            try {
+                FrameReader.read(context, c.uri, c.startMs, c.endMs, 1920, 0) { t, raw ->
+                    if (stop()) return@read false
+                    val full = (if (raw.width % 2 == 0 && raw.height % 2 == 0) raw else Bitmap.createScaledBitmap(raw, raw.width / 2 * 2, raw.height / 2 * 2, true))
+                        .let { if (it.isMutable && it.config == Bitmap.Config.ARGB_8888) it else it.copy(Bitmap.Config.ARGB_8888, true) }
+                    val e = patches.floorEntry(t) ?: patches.ceilingEntry(t)
+                    e?.value?.let { lay(full, it, ww, wh) }
+                    val w = wr ?: FlowRetime.Writer(context, c, tmp, full.width, full.height, 30.0).also { wr = it }
+                    if (full.width == w.w && full.height == w.h) w.still(full, t)
+                    onProgress(70 + ((t - c.startMs) * 29 / total).toInt().coerceIn(0, 29))
+                    true
+                }
+                val w = wr ?: return null
+                if (stop()) return null
+                w.finish()
+                if (w.frames < 2) return null
+            } finally { try { wr?.release() } catch (_: Throwable) {} }
+            if (!tmp.renameTo(out)) return null
+            onProgress(100)
+            return out
+        } catch (t: Throwable) {
+            android.util.Log.w("ObjectRemoval", "failed: ${t.message}", t)
+            failed = t.message
+            return null
+        }
+    }
 
     /** The object (grown a little, so its soft edge and shadow line go too) at working size. */
     private fun holeOf(e: MaskEntry, w: Int, h: Int): BooleanArray {

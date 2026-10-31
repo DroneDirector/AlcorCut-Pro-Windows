@@ -15,6 +15,9 @@ object ExportService {
     val tasks = mutableStateMapOf<String, Task>()
     var lastResult by mutableStateOf<String?>(null)
     const val EXPORT = "export"
+    /** The last export, for the share button (Windows opens the folder instead). */
+    @Volatile var shareUri: android.net.Uri? = null
+    @Volatile var shareMime: String? = null
 
     fun begin(context: Context, key: String, title: String, pct: Int = -1) { tasks[key] = Task(title, pct); TaskbarProgress.update() }
     fun update(context: Context, key: String, pct: Int, title: String? = null) {
