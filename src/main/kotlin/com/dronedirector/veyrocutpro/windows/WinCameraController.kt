@@ -918,7 +918,7 @@ class ProCameraController(private val context: Context) {
     }
 
     fun setFocusAuto() {
-        phone?.let { p -> share(x, y)?.let { (a, b) -> p.command("tapN", null, mapOf("x" to a, "y" to b)) }; return }
+        if (fwd("focusAuto")) return
         rackJob?.cancel(); set { it.copy(manualFocus = false) }; applyControls() }
 
     fun setWhiteBalance(wb: WhiteBalance) {
@@ -1052,7 +1052,7 @@ class ProCameraController(private val context: Context) {
 
     fun tapToFocus(x: Float, y: Float) {
         set { it.copy(focusPoint = x to y, focusId = it.focusId + 1) }
-        if (fwd("focusAuto")) return
+        phone?.let { p -> share(x, y)?.let { (a, b) -> p.command("tapN", null, mapOf("x" to a, "y" to b)) }; return }
         // PC cameras focus on the whole picture: a tap starts their autofocus again.
         if (!st.manualFocusActive) focusCtl?.let { f -> scope.launch(Dispatchers.IO) { cam?.set(0, PcCamera.FOCUS, f.value, false); cam?.set(0, PcCamera.FOCUS, f.value, true) } }
     }
