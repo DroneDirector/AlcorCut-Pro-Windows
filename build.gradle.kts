@@ -24,6 +24,9 @@ kotlin {
     }
 }
 
+/** Libraries for running the app on a development machine (Linux), not shipped. */
+val localNatives: Configuration by configurations.creating
+
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -37,6 +40,15 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk15to18:1.84")
     implementation("com.hierynomus:smbj:0.13.0") { exclude(group = "org.bouncycastle", module = "bcprov-jdk18on") }
     implementation("com.rapid7.client:dcerpc:0.12.13") { exclude(group = "org.bouncycastle", module = "bcprov-jdk18on") }
+    // OpenGL ES for the video editor's effects (LWJGL, BSD licence), run on ANGLE (BSD licence) over DirectX.
+    val lwjgl = "3.3.6"
+    implementation("org.lwjgl:lwjgl:$lwjgl")
+    implementation("org.lwjgl:lwjgl-opengles:$lwjgl")
+    implementation("org.lwjgl:lwjgl-egl:$lwjgl")
+    runtimeOnly("org.lwjgl:lwjgl:$lwjgl:natives-windows")
+    runtimeOnly("org.lwjgl:lwjgl-opengles:$lwjgl:natives-windows")
+    localNatives("org.lwjgl:lwjgl:$lwjgl:natives-linux")
+    localNatives("org.lwjgl:lwjgl-opengles:$lwjgl:natives-linux")
 }
 
 compose.desktop {
@@ -85,5 +97,6 @@ tasks.register("exportClasspath") {
             a.file.copyTo(File(out, a.moduleVersion.id.group + "--" + a.file.name), true)
         }
         localCompiler.resolvedConfiguration.resolvedArtifacts.forEach { a -> a.file.copyTo(File(comp, a.file.name), true) }
+        localNatives.resolvedConfiguration.resolvedArtifacts.forEach { a -> a.file.copyTo(File(out, a.moduleVersion.id.group + "--" + a.file.name), true) }
     }
 }
