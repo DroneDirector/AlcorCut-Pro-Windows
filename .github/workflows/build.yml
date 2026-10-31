@@ -37,9 +37,11 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          cmake -S native/phone-win -B phone-build -A x64 2>&1 | tee phone.log
+          cmake -S native/phone-win -B phone-build -A x64 -T ClangCL -DPARTS=clang 2>&1 | tee phone.log
           cmake --build phone-build --config Release 2>&1 | tee -a phone.log
-          cp phone-build/Release/*.dll packaging/resources/windows/native/
+          cmake -S native/phone-win -B phone-build2 -A x64 -DPARTS=msvc 2>&1 | tee -a phone.log
+          cmake --build phone-build2 --config Release 2>&1 | tee -a phone.log
+          cp phone-build/Release/*.dll phone-build2/Release/*.dll packaging/resources/windows/native/
           ls -la packaging/resources/windows/native
       - name: Report camera library problems
         if: failure()

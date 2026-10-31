@@ -6,13 +6,19 @@ set(CMAKE_CXX_STANDARD 17)
 find_package(JNI REQUIRED)
 set(P ${CMAKE_CURRENT_SOURCE_DIR}/../phone)
 set(COMPAT ${CMAKE_CURRENT_SOURCE_DIR}/compat)
-add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX)
+add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX _USE_MATH_DEFINES)
+# PARTS=clang: voice isolation and speech-to-text (with clang-cl: their C uses variable-length arrays);
+# PARTS=msvc: morph cut (MSVC, with its OpenMP).
+if (NOT DEFINED PARTS)
+    set(PARTS clang)
+endif ()
+if (PARTS STREQUAL "clang")
 
 # Voice isolation.
 file(GLOB RNNOISE_SRC ${P}/rnnoise/src/*.c)
 add_library(veyrocut_native SHARED ${P}/voice_jni.c ${RNNOISE_SRC})
 target_include_directories(veyrocut_native PRIVATE ${COMPAT} ${JNI_INCLUDE_DIRS} ${P}/rnnoise/include ${P}/rnnoise/src)
-target_compile_options(veyrocut_native PRIVATE /O2 /W0)
+target_compile_options(veyrocut_native PRIVATE /O2 -w)
 
 # Speech-to-text.
 set(W ${P}/whisper)
@@ -36,9 +42,13 @@ add_library(veyrocut_whisper SHARED
 )
 target_compile_definitions(veyrocut_whisper PRIVATE GGML_USE_CPU GGML_AVX GGML_AVX2 GGML_FMA GGML_F16C)
 target_include_directories(veyrocut_whisper PRIVATE ${COMPAT} ${JNI_INCLUDE_DIRS} ${W} ${W}/src ${W}/include ${W}/ggml/include ${W}/ggml/src ${W}/ggml/src/ggml-cpu)
-target_compile_options(veyrocut_whisper PRIVATE /O2 /W0 /arch:AVX2 /utf-8)
+target_compile_options(veyrocut_whisper PRIVATE /O2 -w /arch:AVX2 -mavx2 -mfma -mf16c /utf-8)
 
+endif ()
+
+if (PARTS STREQUAL "msvc")
 # Morph cut and smooth slow motion.
 add_library(veyrocut_morph SHARED ${P}/morph/morph.cpp ${P}/morph/morph_jni.cpp)
 target_include_directories(veyrocut_morph PRIVATE ${COMPAT} ${JNI_INCLUDE_DIRS} ${P}/morph)
 target_compile_options(veyrocut_morph PRIVATE /O2 /W0 /openmp)
+endif ()
