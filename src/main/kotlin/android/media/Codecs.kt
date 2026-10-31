@@ -469,6 +469,9 @@ class MediaCodecList(kind: Int) {
  * and sound (16-bit PCM) to AAC with Windows' encoders, as the samples arrive.
  */
 class MediaMuxer(private val path: String, private val format: Int) {
+    // Windows picks the container by the file name's ending, so a name like "x.mp4.part" is written as "x.mp4.part.mp4" and renamed at the end.
+    private val writePath: String = if (path.lowercase().let { it.endsWith(".mp4") || it.endsWith(".mov") || it.endsWith(".m4a") || it.endsWith(".3gp") }) path
+        else path + if (format == OutputFormat.MUXER_OUTPUT_3GPP) ".3gp" else ".mp4"
     private val tracks = ArrayList<MediaFormat>()
     private var enc: com.dronedirector.veyrocutpro.windows.Encoder? = null
     private var started = false
@@ -492,7 +495,7 @@ class MediaMuxer(private val path: String, private val format: Int) {
         val fps = v?.getInteger(MediaFormat.KEY_FRAME_RATE, 30) ?: 30
         val br = v?.getInteger(MediaFormat.KEY_BIT_RATE, 0)?.takeIf { it > 0 } ?: (w * hh * fps / 6).coerceAtLeast(2_000_000)
         val hevc = v?.getString(MediaFormat.KEY_MIME) == MediaFormat.MIMETYPE_VIDEO_HEVC
-        enc = com.dronedirector.veyrocutpro.windows.Encoder.open(path, w, hh, fps.toFloat(), br, hevc, a != null)
+        enc = com.dronedirector.veyrocutpro.windows.Encoder.open(writePath, w, hh, fps.toFloat(), br, hevc, a != null)
         started = true
     }
 
@@ -517,7 +520,12 @@ class MediaMuxer(private val path: String, private val format: Int) {
         }
     }
 
-    fun stop() { if (started) { started = false; enc?.close(); enc = null } }
+    fun stop() {
+        if (started) {
+            started = false; enc?.close(); enc = null
+            if (writePath != path) { val f = java.io.File(path); f.delete(); java.io.File(writePath).renameTo(f) }
+        }
+    }
     fun release() { if (started) stop() }
 
     object OutputFormat {

@@ -23,6 +23,8 @@ jobs:
           cp dfn/LICENSE-MIT out/DeepFilterNet-LICENSE-MIT.txt || true
           cp dfn/LICENSE-APACHE out/DeepFilterNet-LICENSE-APACHE.txt || true
           cd dfn/libDF
+          # Older "time" versions in the lock file don't build with current Rust.
+          cargo update -p time 2>&1 | tail -2 || true
           cargo build --release --features capi,default-model --lib > ../../cargo.log 2>&1 || { tail -40 ../../cargo.log; exit 1; }
           ls -la ../target/release | tee ../../out/build-log.txt
           dll=$(ls ../target/release/*.dll | head -1)

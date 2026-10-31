@@ -21,7 +21,7 @@ jobs:
         run: |
           set -o pipefail
           pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu 2>&1 | tail -3 | tee pip.log
-          pip install "transformers==4.43.4" "optimum[exporters]==1.21.4" "onnx==1.16.2" "onnxruntime==1.19.2" sentencepiece sacremoses "huggingface_hub<0.26" "numpy<2" 2>&1 | tee -a pip.log | tail -5
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu "torch==2.3.1" "transformers==4.43.4" "optimum[exporters]==1.21.4" "onnx==1.16.2" "onnxruntime==1.19.2" sentencepiece sacremoses "huggingface_hub<0.26" "numpy<2" 2>&1 | tee -a pip.log | tail -5
       - name: Report tool problems
         if: failure()
         run: |
@@ -85,7 +85,7 @@ jobs:
                           vocab = tok.get_vocab()
                           for t in (f">>{iso3}<<", f">>{lang}<<", f">>{iso3}_Latn<<", f">>{iso3}_Hani<<", f">>cmn_Hans<<" if lang == "zh" else "", f">>jpn_Hani<<" if lang == "ja" else "", f">>pt_br<<" if lang == "pt" else ""):
                               if t and t in vocab: prefix = t; break
-                          if any(k.startswith(">>") for k in vocab) and not prefix:
+                          if any(k.startswith(">>") for k in vocab) and not prefix and repo.endswith("-mul"):
                               say(f"{name}: {repo} needs a language token but none fits"); continue
                       text = TEST["en"] if src == "en" else None
                       if text:
