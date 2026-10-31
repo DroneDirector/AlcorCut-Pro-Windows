@@ -79,18 +79,18 @@ open class Image internal constructor(val width: Int, val height: Int, internal 
 }
 
 
-/** ARGB ↔ YUV 4:2:0 (planar, BT.709 video range). */
+/** ARGB ↔ YUV 4:2:0 (planar, BT.601 video range, as the phone's encoders take it). */
 internal object Yuv {
     fun size(w: Int, h: Int) = w * h + 2 * ((w + 1) / 2) * ((h + 1) / 2)
     fun fromArgb(px: IntArray, w: Int, h: Int, out: ByteArray = ByteArray(size(w, h))): ByteArray {
         val cw = (w + 1) / 2; val ch = (h + 1) / 2; val uo = w * h; val vo = uo + cw * ch
         for (y in 0 until h) for (x in 0 until w) {
             val c = px[y * w + x]; val r = c shr 16 and 0xFF; val g = c shr 8 and 0xFF; val b = c and 0xFF
-            out[y * w + x] = (16 + ((47 * r + 157 * g + 16 * b) shr 8)).toByte()
+            out[y * w + x] = (16 + ((66 * r + 129 * g + 25 * b + 128) shr 8)).toByte()
             if (x and 1 == 0 && y and 1 == 0) {
                 val i = (y / 2) * cw + x / 2
-                out[uo + i] = (128 + ((-26 * r - 87 * g + 112 * b) shr 8)).coerceIn(0, 255).toByte()
-                out[vo + i] = (128 + ((112 * r - 102 * g - 10 * b) shr 8)).coerceIn(0, 255).toByte()
+                out[uo + i] = (128 + ((-38 * r - 74 * g + 112 * b + 128) shr 8)).coerceIn(0, 255).toByte()
+                out[vo + i] = (128 + ((112 * r - 94 * g - 18 * b + 128) shr 8)).coerceIn(0, 255).toByte()
             }
         }
         return out
@@ -102,9 +102,9 @@ internal object Yuv {
             val u: Int; val v: Int
             if (uvInterleaved) { val i = uo + (y / 2) * w + (x / 2) * 2; u = (d[i].toInt() and 0xFF) - 128; v = (d[i + 1].toInt() and 0xFF) - 128 }
             else { val i = (y / 2) * cw + x / 2; u = (d[uo + i].toInt() and 0xFF) - 128; v = (d[vo + i].toInt() and 0xFF) - 128 }
-            val r = ((yy + 459 * v + 128) shr 8).coerceIn(0, 255)
-            val g = ((yy - 55 * u - 136 * v + 128) shr 8).coerceIn(0, 255)
-            val b = ((yy + 541 * u + 128) shr 8).coerceIn(0, 255)
+            val r = ((yy + 409 * v + 128) shr 8).coerceIn(0, 255)
+            val g = ((yy - 100 * u - 208 * v + 128) shr 8).coerceIn(0, 255)
+            val b = ((yy + 516 * u + 128) shr 8).coerceIn(0, 255)
             out[y * w + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
         return out
@@ -471,7 +471,7 @@ class MediaCodecList(kind: Int) {
  */
 class MediaMuxer(private val path: String, private val format: Int) {
     private val tracks = ArrayList<MediaFormat>()
-    private var h = 0L
+    private var enc: com.dronedirector.veyrocutpro.windows.Encoder? = null
     private var started = false
     private var px = IntArray(0)
     private var lastVideoUs = -1L
@@ -493,16 +493,14 @@ class MediaMuxer(private val path: String, private val format: Int) {
         val fps = v?.getInteger(MediaFormat.KEY_FRAME_RATE, 30) ?: 30
         val br = v?.getInteger(MediaFormat.KEY_BIT_RATE, 0)?.takeIf { it > 0 } ?: (w * hh * fps / 6).coerceAtLeast(2_000_000)
         val hevc = v?.getString(MediaFormat.KEY_MIME) == MediaFormat.MIMETYPE_VIDEO_HEVC
-        val com = com.dronedirector.veyrocutpro.windows.MfNative
-        h = if (com.ok) com.recOpen(path, w, hh, fps * 1000, 1000, br, hevc, if (a != null) 48000 else 0, if (a != null) 2 else 0) else 0L
-        if (h == 0L) throw IllegalStateException(if (com.ok) com.error().ifBlank { "Couldn't write $path" } else "Writing video needs Windows")
+        enc = com.dronedirector.veyrocutpro.windows.Encoder.open(path, w, hh, fps.toFloat(), br, hevc, a != null)
         started = true
     }
 
     fun writeSampleData(track: Int, buf: ByteBuffer, info: MediaCodec.BufferInfo) {
         if (!started || info.size <= 0) return
         val f = tracks[track]
-        val com = com.dronedirector.veyrocutpro.windows.MfNative
+        val e = enc ?: return
         if (f.getString(MediaFormat.KEY_MIME)?.startsWith("video") == true) {
             val w = f.getInteger(MediaFormat.KEY_WIDTH); val hh = f.getInteger(MediaFormat.KEY_HEIGHT)
             if (px.size != w * hh) px = IntArray(w * hh)
@@ -512,15 +510,15 @@ class MediaMuxer(private val path: String, private val format: Int) {
             val fps = f.getInteger(MediaFormat.KEY_FRAME_RATE, 30)
             val dur = if (lastVideoUs >= 0) (info.presentationTimeUs - lastVideoUs).coerceAtLeast(1) else 1_000_000L / fps
             lastVideoUs = info.presentationTimeUs
-            com.recVideo(h, px, info.presentationTimeUs * 10, dur * 10)
+            e.video(px, info.presentationTimeUs, dur)
         } else {
             val d = ByteArray(info.size); buf.duplicate().apply { position(info.offset) }.get(d)
             val frames = d.size / 4
-            com.recAudio(h, d, d.size, info.presentationTimeUs * 10, frames * 10_000_000L / 48000)
+            e.audio(d, info.presentationTimeUs, frames * 1_000_000L / 48000)
         }
     }
 
-    fun stop() { if (started) { com.dronedirector.veyrocutpro.windows.MfNative.recClose(h); h = 0L; started = false } }
+    fun stop() { if (started) { started = false; enc?.close(); enc = null } }
     fun release() { if (started) stop() }
 
     object OutputFormat {
