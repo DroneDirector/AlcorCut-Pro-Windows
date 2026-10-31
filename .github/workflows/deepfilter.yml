@@ -1,0 +1,64 @@
+name: Studio voice library for Windows
+
+# Studio voice in the video editor: DeepFilterNet3 (Hendrik Schröter, MIT / Apache 2.0) built as
+# df.dll with its C interface, like the phone's libdf.so. Published once as "deepfilter-win-v1".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Build
+        run: |
+          set -ex
+          mkdir -p out
+          git clone -q --depth 1 --branch v0.5.6 https://github.com/Rikorose/DeepFilterNet.git dfn
+          cp dfn/LICENSE-MIT out/DeepFilterNet-LICENSE-MIT.txt || true
+          cp dfn/LICENSE-APACHE out/DeepFilterNet-LICENSE-APACHE.txt || true
+          cd dfn/libDF
+          cargo build --release --features capi,default-model --lib 2>&1 | tail -20
+          ls -la ../target/release | tee ../../out/build-log.txt
+          dll=$(ls ../target/release/*.dll | head -1)
+          cp "$dll" ../../out/df.dll
+          cd ../..
+          ls -la out
+      - name: Check
+        run: |
+          pip install -q numpy
+          python - <<'PY'
+          import ctypes, numpy as np, os
+          os.add_dll_directory(os.path.abspath("out"))
+          lib = ctypes.CDLL(os.path.abspath("out/df.dll"))
+          lib.df_create.restype = ctypes.c_void_p
+          lib.df_create.argtypes = [ctypes.c_char_p, ctypes.c_float, ctypes.c_char_p]
+          lib.df_get_frame_length.argtypes = [ctypes.c_void_p]; lib.df_get_frame_length.restype = ctypes.c_size_t
+          lib.df_process_frame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]; lib.df_process_frame.restype = ctypes.c_float
+          st = lib.df_create(None, 100.0, None)
+          n = lib.df_get_frame_length(st)
+          rng = np.random.default_rng(1)
+          t = np.arange(48000 * 3) / 48000
+          voice = (0.3 * np.sin(2 * np.pi * 220 * t) * (np.sin(2 * np.pi * 3 * t) > 0)).astype(np.float32)
+          x = (voice + 0.1 * rng.standard_normal(len(t))).astype(np.float32)
+          y = np.zeros_like(x)
+          for i in range(0, len(x) - n, n):
+              a = np.ascontiguousarray(x[i:i + n]); b = np.zeros(n, np.float32)
+              lib.df_process_frame(st, a.ctypes.data_as(ctypes.POINTER(ctypes.c_float)), b.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+              y[i:i + n] = b
+          quiet = (np.sin(2 * np.pi * 3 * t) <= 0)
+          r = f"frame {n}; noise in pauses: before {float(np.sqrt((x[quiet] ** 2).mean())):.4f}, after {float(np.sqrt((y[quiet] ** 2).mean())):.4f}"
+          print(r); open("out/check.txt", "w").write(r + "\n")
+          PY
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: deepfilter-win-v1
+          name: Studio voice library for Windows (DeepFilterNet3)
+          body: DeepFilterNet3 by Hendrik Schröter (MIT / Apache 2.0), built as df.dll for AlcorCut Pro for Windows' studio voice.
+          files: out/*
