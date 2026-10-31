@@ -8,7 +8,15 @@ import org.jetbrains.skia.RuntimeShaderBuilder
  * language AGSL is based on). Used by the video editor's live previews. Own code.
  */
 class RuntimeShader(val source: String) : Shader() {
-    internal val effect: RuntimeEffect = compiled.getOrPut(source) { RuntimeEffect.makeForShader(source) }
+    internal val effect: RuntimeEffect = compiled.getOrPut(source) {
+        try { RuntimeEffect.makeForShader(source) } catch (e: Throwable) {
+            // Skia's shader language takes no shader-typed function parameters: such functions are
+            // copied once per shader they're called with (same result).
+            val alt = specialise(source)
+            if (alt == source) throw e
+            RuntimeEffect.makeForShader(alt)
+        }
+    }
     internal val builder = RuntimeShaderBuilder(effect)
     /** Child shaders set by name (the view's own picture goes in as the effect's input). */
     internal val children = HashMap<String, Shader>()
@@ -29,7 +37,28 @@ class RuntimeShader(val source: String) : Shader() {
     fun setInputShader(name: String, s: Shader) { children[name] = s }
     fun setInputBuffer(name: String, s: BitmapShader) { children[name] = s }
 
-    companion object { private val compiled = java.util.concurrent.ConcurrentHashMap<String, RuntimeEffect>() }
+    companion object {
+        private val compiled = java.util.concurrent.ConcurrentHashMap<String, RuntimeEffect>()
+
+        internal fun specialise(src: String): String {
+            val head = Regex("""(\w+)\s+(\w+)\s*\(\s*shader\s+(\w+)\s*(,([^)]*))?\)\s*\{""")
+            var text = src
+            while (true) {
+                val m = head.find(text) ?: break
+                val ret = m.groupValues[1]; val name = m.groupValues[2]; val param = m.groupValues[3]; val rest = m.groupValues[5]
+                // The function's body (to its matching brace).
+                var depth = 0; var end = m.range.last
+                for (i in m.range.last until text.length) { if (text[i] == '{') depth++; if (text[i] == '}') { depth--; if (depth == 0) { end = i; break } } }
+                val body = text.substring(m.range.last, end + 1)
+                val before = text.substring(0, m.range.first); val after = text.substring(end + 1)
+                val call = Regex("""\b$name\s*\(\s*(\w+)\s*,""")
+                val used = call.findAll(after).map { it.groupValues[1] }.toSet()
+                val copies = used.joinToString("\n") { sh -> "$ret ${name}_$sh($rest) " + body.replace(Regex("\\b$param\\b"), sh) }
+                text = before + copies + call.replace(after) { "${name}_${it.groupValues[1]}(" }
+            }
+            return text
+        }
+    }
 }
 
 /** A picture used as a shader (tiled or clamped), e.g. a colour table handed to a runtime shader. */

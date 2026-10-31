@@ -69,7 +69,8 @@ fun main(args: Array<String>) {
     // A photo opened with the app ("Open with" in Windows), or a desktop shortcut (--screen=capture / photo).
     var opened = args.firstOrNull { !it.startsWith("--") }?.let { File(it) }?.takeIf { it.isFile }?.let { Uri.fromFile(it) }
     // A video opened with the app goes to the video editor.
-    if (opened != null && opened.toFile()?.extension?.lowercase() in com.dronedirector.veyrocutpro.windows.MediaFiles.videoExt) { openedVideos = listOf(opened!!); opened = null }
+    val videos = args.filter { !it.startsWith("--") }.map { File(it) }.filter { it.isFile && it.extension.lowercase() in com.dronedirector.veyrocutpro.windows.MediaFiles.videoExt }
+    if (videos.isNotEmpty()) { openedVideos = videos.map { Uri.fromFile(it) }; opened = null }
     val asked = args.firstOrNull { it.startsWith("--screen=") }?.substringAfter('=')
     screen.value = when {
         opened != null -> S.PHOTO_EDITOR

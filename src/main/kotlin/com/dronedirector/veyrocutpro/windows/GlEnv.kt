@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
  * are. Everything GL runs on one thread with one context ([run]). Own code.
  */
 object GlEnv {
-    private val thread = Executors.newSingleThreadExecutor { r -> Thread(r, "gl").apply { isDaemon = true } }
+    private val thread = Executors.newSingleThreadExecutor { r -> Thread(r, "gl").apply { isDaemon = true; glThread = this } }
     @Volatile private var ready: Boolean? = null
     /** Why the graphics engine couldn't start (shown with the driver note), or null. */
     @Volatile var problem: String? = null; private set
@@ -26,7 +26,7 @@ object GlEnv {
     @Volatile private var glThread: Thread? = null
 
     /** Whether the engine runs on this PC (starts it on first use). */
-    val ok: Boolean get() = ready ?: run<Boolean> { init() }.also { ready = it }
+    val ok: Boolean get() = ready ?: run<Boolean> { ready ?: init().also { ready = it } }
 
     /** Runs [block] on the GL thread (directly when already there) and returns its result. */
     fun <T> run(block: () -> T): T {
@@ -50,7 +50,6 @@ object GlEnv {
     }
 
     private fun init(): Boolean = try {
-        glThread = Thread.currentThread()
         libs()
         MemoryStack.stackPush().use { st ->
             display = EGL14.eglGetDisplay(0L)

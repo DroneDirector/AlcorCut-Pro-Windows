@@ -48,7 +48,7 @@ object GradeIO {
 
     /** A finished video file moved into the save folder. */
     fun publishVideo(context: Context, file: File, area: StorageArea = StorageArea.CAPTURE): Uri? = try {
-        val f = Storage.newFile(context, area, Storage.Kind.VIDEO, file.name)
+        val f = Storage.newFile(context, area, Storage.Kind.VIDEO, gradedName("PRO", "mp4"))
         if (!file.renameTo(f)) { file.copyTo(f, true); file.delete() }
         Uri.fromFile(f)
     } catch (_: Throwable) { null }
