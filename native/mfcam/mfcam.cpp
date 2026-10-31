@@ -17,6 +17,8 @@
 #include <sensorsapi.h>
 #include <sensors.h>
 #include <jni.h>
+#include <d3d11.h>
+#include <dxgi1_6.h>
 #include <string>
 #include <vector>
 #include <mutex>
@@ -279,6 +281,8 @@ JNIEXPORT void JNICALL JN(close)(JNIEnv* env, jclass, jlong h) {
 
 struct Rec {
     IMFSinkWriter* writer = nullptr;
+    IMFDXGIDeviceManager* dxgi = nullptr;
+    ID3D11Device* d3d = nullptr;
     DWORD video = 0, audio = 0;
     bool hasAudio = false;
     UINT32 w = 0, h = 0;
@@ -289,18 +293,55 @@ struct Rec {
  * Starts an MP4 at [path]: video [w]x[h] at fpsNum/fpsDen, [bitrate] bit/s, HEVC when [hevc],
  * and 16-bit PCM audio (AAC in the file) when [rate] > 0. Uses the graphics card's encoder when there is one.
  */
-JNIEXPORT jlong JNICALL JN(recOpen)(JNIEnv* env, jclass, jstring jpath, jint w, jint h, jint fpsNum, jint fpsDen, jint bitrate, jboolean hevc, jint rate, jint channels) {
+/** A Direct3D 11 device on the graphics card with this LUID (for its video encoder), or null. */
+static ID3D11Device* deviceOn(LUID luid) {
+    IDXGIFactory1* f = nullptr; IDXGIAdapter1* ad = nullptr; ID3D11Device* dev = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&f))) return nullptr;
+    for (UINT i = 0; f->EnumAdapters1(i, &ad) != DXGI_ERROR_NOT_FOUND; i++) {
+        DXGI_ADAPTER_DESC1 d; ad->GetDesc1(&d);
+        if (d.AdapterLuid.LowPart == luid.LowPart && d.AdapterLuid.HighPart == luid.HighPart) {
+            D3D_FEATURE_LEVEL fl;
+            D3D11CreateDevice(ad, D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_VIDEO_SUPPORT | D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &dev, &fl, nullptr);
+            release(ad);
+            break;
+        }
+        release(ad);
+    }
+    release(f);
+    if (dev) {
+        ID3D10Multithread* mt = nullptr;
+        if (SUCCEEDED(dev->QueryInterface(__uuidof(ID3D10Multithread), (void**)&mt))) { mt->SetMultithreadProtected(TRUE); release(mt); }
+    }
+    return dev;
+}
+
+static void freeRec(Rec* r) { release(r->writer); release(r->dxgi); release(r->d3d); delete r; }
+
+/**
+ * [mode] 0 = Windows chooses the encoder, 1 = the graphics card's encoder (on the card [luidHigh]/[luidLow]
+ * when given), 2 = the processor only.
+ */
+static jlong openRec(JNIEnv* env, jstring jpath, jint w, jint h, jint fpsNum, jint fpsDen, jint bitrate, jboolean hevc, jint rate, jint channels, jint mode, jlong luidHigh, jlong luidLow) {
     com();
     std::wstring path = wide(env, jpath);
     Rec* r = new Rec(); r->w = w; r->h = h;
+    if (mode == 1 && (luidHigh != 0 || luidLow != 0) && w > 0) {
+        LUID l; l.HighPart = (LONG)luidHigh; l.LowPart = (DWORD)luidLow;
+        r->d3d = deviceOn(l);
+        UINT token = 0;
+        if (r->d3d && SUCCEEDED(MFCreateDXGIDeviceManager(&token, &r->dxgi))) {
+            if (FAILED(r->dxgi->ResetDevice(r->d3d, token))) release(r->dxgi);
+        }
+    }
     IMFAttributes* a = nullptr;
-    HRESULT hr = MFCreateAttributes(&a, 3);
-    if (SUCCEEDED(hr)) a->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+    HRESULT hr = MFCreateAttributes(&a, 4);
+    if (SUCCEEDED(hr)) a->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, mode == 2 ? FALSE : TRUE);
+    if (SUCCEEDED(hr) && r->dxgi) a->SetUnknown(MF_SINK_WRITER_D3D_MANAGER, r->dxgi);
     if (SUCCEEDED(hr)) a->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING, TRUE);
     if (SUCCEEDED(hr)) a->SetGUID(MF_TRANSCODE_CONTAINERTYPE, MFTranscodeContainerType_MPEG4);
     if (SUCCEEDED(hr)) hr = MFCreateSinkWriterFromURL(path.c_str(), nullptr, a, &r->writer);
     release(a);
-    if (FAILED(hr)) { fail("The video file couldn't be created", hr); delete r; return 0; }
+    if (FAILED(hr)) { fail("The video file couldn't be created", hr); freeRec(r); return 0; }
 
     // Pictures (none for a sound-only file: w = 0).
     if (w > 0 && h > 0) {
@@ -325,7 +366,7 @@ JNIEXPORT jlong JNICALL JN(recOpen)(JNIEnv* env, jclass, jstring jpath, jint w, 
         if (SUCCEEDED(hr)) MFSetAttributeRatio(in, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
         if (SUCCEEDED(hr)) hr = r->writer->SetInputMediaType(r->video, in, nullptr);
         release(out); release(in);
-        if (FAILED(hr)) { fail(hevc ? "No HEVC encoder on this PC" : "No H.264 encoder on this PC", hr); release(r->writer); delete r; return 0; }
+        if (FAILED(hr)) { fail(hevc ? "No HEVC encoder on this PC" : "No H.264 encoder on this PC", hr); freeRec(r); return 0; }
     }
 
     if (rate > 0) {
@@ -349,11 +390,112 @@ JNIEXPORT jlong JNICALL JN(recOpen)(JNIEnv* env, jclass, jstring jpath, jint w, 
         if (SUCCEEDED(ah)) ah = r->writer->SetInputMediaType(r->audio, ai, nullptr);
         release(ao); release(ai);
         r->hasAudio = SUCCEEDED(ah);
-        if (!r->hasAudio) { fail("Sound couldn't be added to the video", ah); release(r->writer); delete r; return 0; }
+        if (!r->hasAudio) { fail("Sound couldn't be added to the video", ah); freeRec(r); return 0; }
     }
     hr = r->writer->BeginWriting();
-    if (FAILED(hr)) { fail(hevc ? "The HEVC encoder couldn't start" : "The H.264 encoder couldn't start", hr); release(r->writer); delete r; return 0; }
+    if (FAILED(hr)) { fail(hevc ? "The HEVC encoder couldn't start" : "The H.264 encoder couldn't start", hr); freeRec(r); return 0; }
     return (jlong)r;
+}
+
+JNIEXPORT jlong JNICALL JN(recOpen)(JNIEnv* env, jclass, jstring jpath, jint w, jint h, jint fpsNum, jint fpsDen, jint bitrate, jboolean hevc, jint rate, jint channels) {
+    return openRec(env, jpath, w, h, fpsNum, fpsDen, bitrate, hevc, rate, channels, 0, 0, 0);
+}
+
+JNIEXPORT jlong JNICALL JN(recOpen2)(JNIEnv* env, jclass, jstring jpath, jint w, jint h, jint fpsNum, jint fpsDen, jint bitrate, jboolean hevc, jint rate, jint channels, jint mode, jlong luidHigh, jlong luidLow) {
+    jlong r = openRec(env, jpath, w, h, fpsNum, fpsDen, bitrate, hevc, rate, channels, mode, luidHigh, luidLow);
+    // The chosen card couldn't take it: let Windows choose.
+    if (r == 0 && mode == 1 && (luidHigh != 0 || luidLow != 0)) r = openRec(env, jpath, w, h, fpsNum, fpsDen, bitrate, hevc, rate, channels, 1, 0, 0);
+    return r;
+}
+
+/** Which encoder a recording uses: "hardware|<name>" or "software|<name>". */
+JNIEXPORT jstring JNICALL JN(recEncoder)(JNIEnv* env, jclass, jlong h) {
+    Rec* r = (Rec*)h; if (!r || !r->writer) return env->NewStringUTF("");
+    IMFSinkWriterEx* ex = nullptr; IMFTransform* t = nullptr; GUID cat;
+    std::string out;
+    if (SUCCEEDED(r->writer->QueryInterface(__uuidof(IMFSinkWriterEx), (void**)&ex))) {
+        for (DWORD i = 0; ; i++) {
+            if (FAILED(ex->GetTransformForStream(r->video, i, &cat, &t))) break;
+            if (cat == MFT_CATEGORY_VIDEO_ENCODER) {
+                IMFAttributes* at = nullptr; UINT32 hw = 0; WCHAR name[256] = L"";
+                if (SUCCEEDED(t->GetAttributes(&at)) && at) {
+                    UINT32 len = 0;
+                    hw = (at->GetStringLength(MFT_ENUM_HARDWARE_URL_Attribute, &len) == S_OK) ? 1 : 0;
+                    at->GetString(MFT_FRIENDLY_NAME_Attribute, name, 256, nullptr);
+                    release(at);
+                }
+                char n8[512]; WideCharToMultiByte(CP_UTF8, 0, name, -1, n8, sizeof n8, nullptr, nullptr);
+                out = std::string(hw ? "hardware|" : "software|") + n8;
+                release(t);
+                break;
+            }
+            release(t);
+        }
+        release(ex);
+    }
+    return env->NewStringUTF(out.c_str());
+}
+
+/**
+ * The PC's graphics cards, most powerful first: "luidHigh|luidLow|vendorId|dedicatedMB|software|powerRank|name".
+ * powerRank 0 is the one that uses the least power (the built-in one on a laptop).
+ */
+JNIEXPORT jobjectArray JNICALL JN(gpuList)(JNIEnv* env, jclass) {
+    std::vector<std::string> rows;
+    IDXGIFactory6* f6 = nullptr; IDXGIFactory1* f1 = nullptr;
+    CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&f1);
+    if (f1) f1->QueryInterface(__uuidof(IDXGIFactory6), (void**)&f6);
+    std::vector<LUID> byPower;
+    if (f6) {
+        IDXGIAdapter1* ad = nullptr;
+        for (UINT i = 0; SUCCEEDED(f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_MINIMUM_POWER, __uuidof(IDXGIAdapter1), (void**)&ad)); i++) {
+            DXGI_ADAPTER_DESC1 d; ad->GetDesc1(&d); byPower.push_back(d.AdapterLuid); release(ad);
+        }
+    }
+    auto add = [&](IDXGIAdapter1* ad) {
+        DXGI_ADAPTER_DESC1 d; ad->GetDesc1(&d);
+        int rank = -1;
+        for (size_t k = 0; k < byPower.size(); k++) if (byPower[k].LowPart == d.AdapterLuid.LowPart && byPower[k].HighPart == d.AdapterLuid.HighPart) { rank = (int)k; break; }
+        char n8[512]; WideCharToMultiByte(CP_UTF8, 0, d.Description, -1, n8, sizeof n8, nullptr, nullptr);
+        char row[800];
+        snprintf(row, sizeof row, "%ld|%lu|%u|%llu|%d|%d|%s", (long)d.AdapterLuid.HighPart, (unsigned long)d.AdapterLuid.LowPart, d.VendorId,
+                 (unsigned long long)(d.DedicatedVideoMemory / (1024 * 1024)), (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) ? 1 : 0, rank, n8);
+        rows.push_back(row);
+    };
+    if (f6) {
+        IDXGIAdapter1* ad = nullptr;
+        for (UINT i = 0; SUCCEEDED(f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, __uuidof(IDXGIAdapter1), (void**)&ad)); i++) { add(ad); release(ad); }
+    } else if (f1) {
+        IDXGIAdapter1* ad = nullptr;
+        for (UINT i = 0; f1->EnumAdapters1(i, &ad) != DXGI_ERROR_NOT_FOUND; i++) { add(ad); release(ad); }
+    }
+    release(f6); release(f1);
+    jobjectArray arr = env->NewObjectArray((jsize)rows.size(), env->FindClass("java/lang/String"), nullptr);
+    for (size_t i = 0; i < rows.size(); i++) env->SetObjectArrayElement(arr, (jsize)i, env->NewStringUTF(rows[i].c_str()));
+    return arr;
+}
+
+/** The processor: how many cores this app may use, and at lower priority so the PC stays responsive. Returns the cores in use. */
+JNIEXPORT jint JNICALL JN(cpuLimit)(JNIEnv*, jclass, jint cores, jboolean low) {
+    HANDLE p = GetCurrentProcess();
+    DWORD_PTR mine = 0, sys = 0;
+    if (!GetProcessAffinityMask(p, &mine, &sys) || sys == 0) return 0;
+    DWORD_PTR want = 0; int n = 0;
+    for (int b = 0; b < (int)(sizeof(DWORD_PTR) * 8); b++) {
+        DWORD_PTR bit = ((DWORD_PTR)1) << b;
+        if ((sys & bit) && (cores <= 0 || n < cores)) { want |= bit; n++; }
+    }
+    if (want) SetProcessAffinityMask(p, want);
+    SetPriorityClass(p, low ? BELOW_NORMAL_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS);
+    return n;
+}
+
+/** All the processor cores Windows has (in this app's group). */
+JNIEXPORT jint JNICALL JN(cpuCount)(JNIEnv*, jclass) {
+    DWORD_PTR mine = 0, sys = 0;
+    if (!GetProcessAffinityMask(GetCurrentProcess(), &mine, &sys)) return 0;
+    int n = 0; for (int b = 0; b < (int)(sizeof(DWORD_PTR) * 8); b++) if (sys & (((DWORD_PTR)1) << b)) n++;
+    return n;
 }
 
 /** One picture (ARGB, top row first) at [ts] for [dur] (100 ns units). */
@@ -407,9 +549,8 @@ JNIEXPORT jboolean JNICALL JN(recClose)(JNIEnv* env, jclass, jlong h) {
     {
         std::lock_guard<std::mutex> g(r->lock);
         hr = r->writer->Finalize();
-        release(r->writer);
     }
-    delete r;
+    freeRec(r);
     if (FAILED(hr)) { fail("Finishing the video failed", hr); return JNI_FALSE; }
     return JNI_TRUE;
 }

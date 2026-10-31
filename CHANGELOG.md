@@ -35,6 +35,10 @@
   - **Caption translation:** runs offline on the PC (OPUS-MT, University of Helsinki) for 18 languages; Korean only as the original language. Each language's translation packs are downloaded once.
   - **Studio voice:** DeepFilterNet3 cleans up voices on export, as on the phone.
 - Smooth slow motion and motion blur work on Windows (they couldn't save their file before), and the video editor's texts say "PC" instead of "phone".
+- **Performance settings** (video editor → settings → Performance):
+  - **Graphics card:** Automatic, High performance (the separate card), Power saving (the built-in one) or a card by name. The effects and the app's screen use it from the next start.
+  - **Encoder for export:** Automatic, the graphics card's encoder (fastest) or the processor only. The settings show which encoder the last export used.
+  - **Processor load:** Maximum, Balanced (leaves cores free so the PC stays smooth) or Light (cooler and quieter on a laptop). Applies at once.
 
 ## 1.0.12 and newer — first Windows version
 - The photo editor from the phone app, with the same screens, layout and wording: start page, library, filmstrip, all edit panels (presets, light, curve, colour, HSL mixer, grading, detail, effects, masks, heal, retouch, lens, crop & perspective, watermark, text, history), catalogs, projects and export.

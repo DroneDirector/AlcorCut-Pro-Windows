@@ -51,6 +51,8 @@ import com.dronedirector.veyrocutpro.ui.AppScreen as S
 
 fun main(args: Array<String>) {
     val app = Context.app
+    // Settings → Performance: graphics card and processor load (before the first window).
+    com.dronedirector.veyrocutpro.windows.Performance.startup(app)
     AccentStore.load(app)
     com.dronedirector.veyrocutpro.editor.LutLibrary.init(app)
     com.dronedirector.veyrocutpro.camera.CaptureExtras.load(app)

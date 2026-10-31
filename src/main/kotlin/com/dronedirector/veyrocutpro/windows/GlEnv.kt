@@ -52,7 +52,7 @@ object GlEnv {
     private fun init(): Boolean = try {
         libs()
         MemoryStack.stackPush().use { st ->
-            display = EGL14.eglGetDisplay(0L)
+            display = chosenDisplay(st) ?: EGL14.eglGetDisplay(0L)
             if (display == 0L) throw IllegalStateException("No graphics display")
             val maj = st.mallocInt(1); val min = st.mallocInt(1)
             if (!EGL14.eglInitialize(display, maj, min)) throw IllegalStateException("Graphics engine didn't start (EGL 0x%04X)".format(EGL14.eglGetError()))
@@ -75,6 +75,23 @@ object GlEnv {
         problem = t.message ?: t.toString()
         com.dronedirector.veyrocutpro.ui.AppLog.w("Graphics engine: $problem")
         false
+    }
+
+    /** ANGLE on the graphics card picked in settings → Performance (Direct3D 11 on that card), or null. */
+    private fun chosenDisplay(st: MemoryStack): Long? {
+        val card = Performance.effectsCard ?: return null
+        if (!System.getProperty("os.name").lowercase().contains("win")) return null
+        return try {
+            val attrs = st.ints(
+                0x3203, 0x3208,                       // EGL_PLATFORM_ANGLE_TYPE_ANGLE = D3D11
+                0x34A0, card.luidHigh.toInt(),        // EGL_PLATFORM_ANGLE_D3D_LUID_HIGH_ANGLE
+                0x34A1, card.luidLow.toInt(),         // EGL_PLATFORM_ANGLE_D3D_LUID_LOW_ANGLE
+                EGL10.EGL_NONE)
+            org.lwjgl.egl.EXTPlatformBase.eglGetPlatformDisplayEXT(0x3202 /* EGL_PLATFORM_ANGLE_ANGLE */, 0L, attrs).takeIf { it != 0L }
+        } catch (t: Throwable) {
+            com.dronedirector.veyrocutpro.ui.AppLog.w("Graphics card choice: ${t.message}")
+            null
+        }
     }
 
     /** Starts the engine on its thread (call before the first use). */

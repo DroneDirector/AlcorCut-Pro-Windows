@@ -503,10 +503,15 @@ internal abstract class Encoder {
                 if (DevTools.windows) throw ExportException("Windows' media engine couldn't start — reinstall AlcorCut Pro", null, ExportException.ERROR_CODE_ENCODER_INIT_FAILED)
                 return DevEncoder(path, w, h, fps, audio)
             }
-            val rec = MfNative.recOpen(path, w, h, Math.round(fps * 1000), 1000, bitrate, hevc, if (audio) 48000 else 0, if (audio) 2 else 0)
+            val (mode, lh, ll) = Performance.encoderArgs(android.content.Context.app)
+            val rec = MfNative.recOpen2(path, w, h, Math.round(fps * 1000), 1000, bitrate, hevc, if (audio) 48000 else 0, if (audio) 2 else 0, mode, lh, ll)
             if (rec == 0L) throw ExportException(MfNative.error().ifBlank { "The encoder couldn't start" } + if (hevc) " (HEVC needs Windows' HEVC Video Extensions)" else "", null, ExportException.ERROR_CODE_ENCODER_INIT_FAILED)
             return object : Encoder() {
-                override fun video(px: IntArray, tUs: Long, durUs: Long) { if (!MfNative.recVideo(rec, px, tUs * 10, durUs * 10)) throw ExportException("Encoding failed: " + MfNative.error(), null, ExportException.ERROR_CODE_ENCODING_FAILED) }
+                private var told = false
+                override fun video(px: IntArray, tUs: Long, durUs: Long) {
+                    if (!MfNative.recVideo(rec, px, tUs * 10, durUs * 10)) throw ExportException("Encoding failed: " + MfNative.error(), null, ExportException.ERROR_CODE_ENCODING_FAILED)
+                    if (!told) { told = true; Performance.noteEncoder(try { MfNative.recEncoder(rec) } catch (_: Throwable) { "" }) }
+                }
                 override fun audio(pcm: ByteArray, tUs: Long, durUs: Long) { MfNative.recAudio(rec, pcm, pcm.size, tUs * 10, durUs * 10) }
                 override fun close() { if (!MfNative.recClose(rec)) throw ExportException("Finishing the file failed: " + MfNative.error(), null, ExportException.ERROR_CODE_MUXING_FAILED) }
             }

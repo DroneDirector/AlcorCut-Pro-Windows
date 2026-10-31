@@ -31,6 +31,7 @@ copy editor/ExportOpts.kt
 copy editor/DevPresets.kt
 copy editor/EditClipboard.kt
 copy editor/EditorUi.kt
+edit editor/EditorUi.kt EditorUi.py
 copy editor/LookTools.kt
 copy editor/CropGuides.kt
 copy editor/ScopeDrawer.kt

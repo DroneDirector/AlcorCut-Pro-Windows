@@ -26,6 +26,11 @@ object MfNative {
     @JvmStatic external fun setControl(h: Long, kind: Int, id: Int, value: Int, auto: Boolean): Boolean
     @JvmStatic external fun close(h: Long)
     @JvmStatic external fun recOpen(path: String, w: Int, h: Int, fpsNum: Int, fpsDen: Int, bitrate: Int, hevc: Boolean, rate: Int, channels: Int): Long
+    @JvmStatic external fun recOpen2(path: String, w: Int, h: Int, fpsNum: Int, fpsDen: Int, bitrate: Int, hevc: Boolean, rate: Int, channels: Int, mode: Int, luidHigh: Long, luidLow: Long): Long
+    @JvmStatic external fun recEncoder(h: Long): String
+    @JvmStatic external fun gpuList(): Array<String>
+    @JvmStatic external fun cpuLimit(cores: Int, low: Boolean): Int
+    @JvmStatic external fun cpuCount(): Int
     @JvmStatic external fun recVideo(h: Long, px: IntArray, ts: Long, dur: Long): Boolean
     @JvmStatic external fun recAudio(h: Long, pcm: ByteArray, n: Int, ts: Long, dur: Long): Boolean
     @JvmStatic external fun recClose(h: Long): Boolean

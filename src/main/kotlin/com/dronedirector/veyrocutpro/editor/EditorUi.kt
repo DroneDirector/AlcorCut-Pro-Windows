@@ -494,7 +494,10 @@ fun EditorSettingsBody(
                 if (show("prefs")) com.dronedirector.veyrocutpro.ui.SettingsGroup(k + "prefs", "Preferences", "Appearance, sound, audio hardware, autosave" + (if (isVideo) ", playback, timeline" else "") + ", editing") {
                     PreferencesSection(screen, playbackExtra, timelineExtra)
                 }
-                if (show("sysinfo")) com.dronedirector.veyrocutpro.ui.SettingsGroup(k + "sysinfo", "System Info", "This phone's hardware and drivers") {
+                if (isVideo && show("perf")) com.dronedirector.veyrocutpro.ui.SettingsGroup(k + "perf", "Performance", "Graphics card, encoder for export, processor load") {
+                    com.dronedirector.veyrocutpro.windows.PerformanceSettings()
+                }
+                if (show("sysinfo")) com.dronedirector.veyrocutpro.ui.SettingsGroup(k + "sysinfo", "System Info", "This PC's hardware and drivers") {
                     com.dronedirector.veyrocutpro.ui.SystemInfoSection()
                 }
                 if (show("wm") && (screen != com.dronedirector.veyrocutpro.ui.AppScreen.EDITOR)) com.dronedirector.veyrocutpro.ui.SettingsGroup(k + "wm", "Watermark", "Remember your watermark and add it to everything new") {
