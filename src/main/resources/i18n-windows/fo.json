@@ -64,5 +64,6 @@
 "No Chromecast or Google TV found on this network yet. Still looking… (the PC and the TV must be on the same network)": "Eingin Chromecast ella Google TV funnin á hesum netverkinum enn. Leiti framvegis… (teldan og sjónvarpið mugu vera á sama netverki)",
 "The connection to the TV was lost": "Sambandið við sjónvarpið fór",
 "The TV closed the player": "Sjónvarpið lat avspælaran aftur",
-"Another app took over the TV": "Ein onnur app tók yvir sjónvarpið"
+"Another app took over the TV": "Ein onnur app tók yvir sjónvarpið",
+"This PC has no motion sensor: the level works on a tablet or 2-in-1, or with your phone as the camera": "Henda teldan hevur ongan rørslusensor: vatnpassið virkar á einari teldli ella 2-í-1, ella við telefonini sum kamera"
 }

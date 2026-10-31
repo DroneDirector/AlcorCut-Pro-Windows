@@ -14,6 +14,7 @@
 - **Stabilization** on PC cameras: a steadier picture by a light crop-in, also for hyperlapse. Gyroflow mode explains how to stabilize with a camera's own motion data.
 - Photos are saved without the monitoring LUT, as on the phone.
 - **Cast to a TV**: the Chromecast button in Capture shows the live picture on a Chromecast or Google TV on the same network (a few seconds behind). For a projector or another screen: Windows key + K.
+- **Level** (Settings → Level): on tablets and 2-in-1 PCs with a motion sensor, and with your phone as the camera (it follows the phone's tilt).
 - Remote monitor from a browser, microphone and speaker choice (Audio hardware), and the Capture gallery (videos play in Windows' own player).
 - **Faster and smoother**: the photo on screen is only redrawn when it changes, so sliders, zooming and the panels respond much more quickly (it was copied again for every screen update before).
 - Everything new in the phone app's photo editor: photo layers with blend modes, colour samplers, focus mask, MERGE PHOTOS ▾ in the toolbar, HDR without ghosts, long exposure from a video (comes with the video editor on Windows), swipe between photos, NEXT UNEDITED →, recently used tools, recent projects next to the catalog card.

@@ -1,6 +1,5 @@
 # Windows: phone-only settings are left out (no side buttons, motion sensors, second camera or Bluetooth headset routing on a PC).
 EDITS = [
-    ('                ToggleRow("Level", "Horizon line, turns green when straight", s.showLevel) { c.toggleLevel() }\n', ''),
     ('                    ToggleRow("Editing proxy",', '                    if (false) ToggleRow("Editing proxy",'),
     ('                    ToggleRow("Front + back camera",', '                    if (false) ToggleRow("Front + back camera",'),
     ('                    ToggleRow("Bluetooth microphone",', '                    if (false) ToggleRow("Bluetooth microphone",'),

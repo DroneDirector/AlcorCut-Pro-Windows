@@ -13,6 +13,9 @@
 #include <wmcodecdsp.h>
 #include <PortableDeviceApi.h>
 #include <PortableDevice.h>
+#include <initguid.h>
+#include <sensorsapi.h>
+#include <sensors.h>
 #include <jni.h>
 #include <string>
 #include <vector>
@@ -893,6 +896,45 @@ JNIEXPORT void JNICALL JN(ptpClose)(JNIEnv* env, jclass, jlong h) {
     com();
     IPortableDevice* d = (IPortableDevice*)h; if (!d) return;
     d->Close(); d->Release();
+}
+
+// ---------------------------------------------------------------- motion sensor (tablets and 2-in-1 laptops)
+
+static ISensor* g_accel = nullptr;
+static bool g_accelTried = false;
+static std::mutex g_accelLock;
+
+/** The accelerometer's reading in g (x right, y up, z out of the screen), or null without one. */
+JNIEXPORT jfloatArray JNICALL JN(accel)(JNIEnv* env, jclass) {
+    std::lock_guard<std::mutex> lk(g_accelLock);
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    if (!g_accel && !g_accelTried) {
+        g_accelTried = true;
+        ISensorManager* mgr = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_SensorManager, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&mgr))) && mgr) {
+            ISensorCollection* col = nullptr;
+            if (SUCCEEDED(mgr->GetSensorsByType(SENSOR_TYPE_ACCELEROMETER_3D, &col)) && col) {
+                ULONG n = 0; col->GetCount(&n);
+                if (n > 0) col->GetAt(0, &g_accel);
+                col->Release();
+            }
+            mgr->Release();
+        }
+    }
+    if (!g_accel) return nullptr;
+    ISensorDataReport* rep = nullptr;
+    if (FAILED(g_accel->GetData(&rep)) || !rep) return nullptr;
+    float v[3] = {0, 0, 0};
+    const PROPERTYKEY* keys[3] = { &SENSOR_DATA_TYPE_ACCELERATION_X_G, &SENSOR_DATA_TYPE_ACCELERATION_Y_G, &SENSOR_DATA_TYPE_ACCELERATION_Z_G };
+    for (int i = 0; i < 3; i++) {
+        PROPVARIANT pv; PropVariantInit(&pv);
+        if (SUCCEEDED(rep->GetSensorValue(*keys[i], &pv))) v[i] = pv.vt == VT_R8 ? (float)pv.dblVal : pv.vt == VT_R4 ? pv.fltVal : 0.f;
+        PropVariantClear(&pv);
+    }
+    rep->Release();
+    jfloatArray a = env->NewFloatArray(3);
+    env->SetFloatArrayRegion(a, 0, 3, v);
+    return a;
 }
 
 } // extern "C"

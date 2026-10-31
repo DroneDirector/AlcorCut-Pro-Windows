@@ -168,7 +168,7 @@ class ProCameraController(private val context: Context) {
         scope.launch {
             val link = PhoneLink(d, ::onFrame, { m -> scope.launch { mirror(m) } }, { f -> scope.launch { onPhoneFile(f) } }) { why ->
                 scope.launch {
-                    if (phone != null) { phone = null; set { it.copy(ready = false, recording = false) }; toast(why ?: "The phone disconnected") }
+                    if (phone != null) { phone = null; android.hardware.Motion.phoneLinked = false; android.hardware.Motion.phoneRoll = null; set { it.copy(ready = false, recording = false) }; toast(why ?: "The phone disconnected") }
                 }
             }
             val err = withContext(Dispatchers.IO) { link.connect(pin.trim()) }
@@ -178,6 +178,7 @@ class ProCameraController(private val context: Context) {
             withContext(Dispatchers.IO) { cam?.close() }; cam = null
             previewView?.clear()
             phone = link
+            android.hardware.Motion.phoneLinked = true
             refreshPipes()
             set { it.copy(ready = true) }
             toast("Connected to ${d.name} — photos and videos are taken on the phone and copied here")
@@ -257,6 +258,7 @@ class ProCameraController(private val context: Context) {
 
     /** The phone's camera settings, shown on the PC. */
     private fun mirror(m: Map<String, String>) {
+        android.hardware.Motion.phoneRoll = m["roll"]?.toFloatOrNull()
         fun b(k: String) = m[k] == "true"
         fun i(k: String) = m[k]?.toDoubleOrNull()?.toInt()
         fun l(k: String) = m[k]?.toDoubleOrNull()?.toLong()
@@ -393,7 +395,7 @@ class ProCameraController(private val context: Context) {
     private fun closeCamera() {
         watchJob?.cancel(); watchJob = null
         closeTether()
-        phone?.close(); phone = null
+        phone?.close(); phone = null; android.hardware.Motion.phoneLinked = false; android.hardware.Motion.phoneRoll = null
         cam?.close(); cam = null
         synchronized(latestLock) { latest = null }
     }
@@ -403,12 +405,12 @@ class ProCameraController(private val context: Context) {
         val lens = st.lens ?: return
         phones.firstOrNull { it.link == lens.id }?.let { p ->
             if (phone?.device?.link == p.link) return
-            phone?.close(); phone = null
+            phone?.close(); phone = null; android.hardware.Motion.phoneLinked = false; android.hardware.Motion.phoneRoll = null
             pinError = null
             pinRequest = p
             return
         }
-        phone?.close(); phone = null
+        phone?.close(); phone = null; android.hardware.Motion.phoneLinked = false; android.hardware.Motion.phoneRoll = null
         closeTether()
         tethers.firstOrNull { it.link == lens.id }?.let { t -> openTether(t); return }
         val dev = devices.firstOrNull { it.link == lens.id } ?: return
@@ -966,7 +968,10 @@ class ProCameraController(private val context: Context) {
     fun setBurst(count: Int) = set { it.copy(burst = count) }
     fun setGrid(g: GridMode) = set { it.copy(grid = g) }
     fun bumpLayoutVersion() = set { it.copy(layoutVersion = it.layoutVersion + 1) }
-    fun toggleLevel() { toast("The level needs a phone's motion sensor") }
+    fun toggleLevel() {
+        if (!st.showLevel && !android.hardware.Motion.available) { toast("This PC has no motion sensor: the level works on a tablet or 2-in-1, or with your phone as the camera"); return }
+        set { it.copy(showLevel = !it.showLevel) }
+    }
     fun toggleHistogram() = set { it.copy(showHistogram = !it.showHistogram) }
     fun toggleZebras() = set { it.copy(zebras = !it.zebras) }
     fun setZebraLevel(level: Int) = set { it.copy(zebraLevel = level.coerceIn(70, 100)) }

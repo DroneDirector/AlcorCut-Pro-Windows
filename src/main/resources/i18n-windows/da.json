@@ -64,5 +64,6 @@
 "No Chromecast or Google TV found on this network yet. Still looking… (the PC and the TV must be on the same network)": "Ingen Chromecast eller Google TV fundet på dette netværk endnu. Leder stadig… (pc'en og tv'et skal være på samme netværk)",
 "The connection to the TV was lost": "Forbindelsen til tv'et blev afbrudt",
 "The TV closed the player": "Tv'et lukkede afspilleren",
-"Another app took over the TV": "En anden app overtog tv'et"
+"Another app took over the TV": "En anden app overtog tv'et",
+"This PC has no motion sensor: the level works on a tablet or 2-in-1, or with your phone as the camera": "Denne pc har ingen bevægelsessensor: vaterpasset virker på en tablet eller 2-i-1, eller med din telefon som kamera"
 }

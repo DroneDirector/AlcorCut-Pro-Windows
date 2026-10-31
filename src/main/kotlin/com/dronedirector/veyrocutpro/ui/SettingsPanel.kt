@@ -264,6 +264,7 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
             SettingsGroup("view", "Viewfinder & monitoring", "Histogram, level, focus peaking, false colour, zebras, monitoring LUT, focus magnifier, safe areas, scopes, shutter angle, anamorphic") {
                 Section("COMPOSITION")
                 ToggleRow("Histogram", "Pro modes: live brightness graph with clipping warnings", s.showHistogram) { c.toggleHistogram() }
+                ToggleRow("Level", "Horizon line, turns green when straight", s.showLevel) { c.toggleLevel() }
                 ToggleRow("Focus peaking", "Pro modes: highlights in-focus edges in red", s.peaking) { c.togglePeaking() }
                 ToggleRow("False colour", "Pro modes: exposure as colour bands (green = mid grey, pink = skin, red = clipped)", s.falseColor) { c.toggleFalseColor() }
                 ToggleRow("Zebras", "Pro modes: stripes over areas brighter than ${s.zebraLevel}%", s.zebras) { c.toggleZebras() }
