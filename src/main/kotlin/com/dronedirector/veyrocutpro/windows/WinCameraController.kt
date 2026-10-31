@@ -918,7 +918,7 @@ class ProCameraController(private val context: Context) {
     }
 
     fun setFocusAuto() {
-        if (fwd("focusAuto")) return
+        phone?.let { p -> share(x, y)?.let { (a, b) -> p.command("tapN", null, mapOf("x" to a, "y" to b)) }; return }
         rackJob?.cancel(); set { it.copy(manualFocus = false) }; applyControls() }
 
     fun setWhiteBalance(wb: WhiteBalance) {
@@ -1056,7 +1056,17 @@ class ProCameraController(private val context: Context) {
         // PC cameras focus on the whole picture: a tap starts their autofocus again.
         if (!st.manualFocusActive) focusCtl?.let { f -> scope.launch(Dispatchers.IO) { cam?.set(0, PcCamera.FOCUS, f.value, false); cam?.set(0, PcCamera.FOCUS, f.value, true) } }
     }
-    fun meterAt(x: Float, y: Float) { CaptureExtras.aePoint = x to y }
+    fun meterAt(x: Float, y: Float) {
+        CaptureExtras.aePoint = x to y
+        phone?.let { p -> share(x, y)?.let { (a, b) -> p.command("meterN", null, mapOf("x" to a, "y" to b)) } }
+    }
+
+    /** A spot on the picture as a share (0–1) of its width and height. */
+    private fun share(x: Float, y: Float): Pair<Float, Float>? {
+        val v = previewView ?: return null
+        if (v.width <= 0 || v.height <= 0) return null
+        return (x / v.width).coerceIn(0f, 1f) to (y / v.height).coerceIn(0f, 1f)
+    }
     fun setSplitAfAe(on: Boolean) { CaptureExtras.splitAfAe = on; if (!on) CaptureExtras.aePoint = null; CaptureExtras.save(context) }
 
     private val pullJobs = HashMap<String, kotlinx.coroutines.Job>()
