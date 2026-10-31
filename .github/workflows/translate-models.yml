@@ -1,0 +1,127 @@
+name: Translation models for Windows
+
+# Caption translation on Windows: OPUS-MT models (University of Helsinki, CC-BY 4.0 or Apache 2.0 —
+# free for use in a paid app with a credit) turned into ONNX for ONNX Runtime and made smaller (8-bit).
+# Every language goes through English. Published once as the release "translate-models-v1".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Tools
+        run: |
+          pip install --quiet torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet "transformers==4.44.2" "optimum[onnxruntime]==1.21.4" "onnx==1.16.2" "onnxruntime==1.19.2" sentencepiece sacremoses "huggingface_hub<0.26" "numpy<2"
+      - name: Convert
+        run: |
+          mkdir -p out
+          python - <<'PY'
+          import json, os, re, shutil, subprocess, zipfile
+          from huggingface_hub import HfApi, hf_hub_download
+          from transformers import MarianMTModel, MarianTokenizer
+          from onnxruntime.quantization import quantize_dynamic, QuantType
+
+          api = HfApi()
+          OK = {"cc-by-4.0", "apache-2.0", "mit"}
+          # (language, iso-639-3 code for multi-language models)
+          LANGS = {"da": "dan", "no": "nob", "sv": "swe", "is": "isl", "de": "deu", "nl": "nld", "fr": "fra", "es": "spa",
+                   "it": "ita", "pt": "por", "pl": "pol", "fi": "fin", "uk": "ukr", "ar": "ara", "hi": "hin", "ja": "jpn",
+                   "ko": "kor", "zh": "zho"}
+          TEST = {"en": "The weather is beautiful today, and we are going to the beach with our friends."}
+
+          def candidates(src, dst):
+              if dst == "en":
+                  x = src
+                  return [f"Helsinki-NLP/opus-mt-{x}-en", f"Helsinki-NLP/opus-mt-tc-big-{x}-en",
+                          {"no": "Helsinki-NLP/opus-mt-gmq-en", "pt": "Helsinki-NLP/opus-mt-ROMANCE-en",
+                           "pl": "Helsinki-NLP/opus-mt-sla-en"}.get(x, ""), "Helsinki-NLP/opus-mt-mul-en"]
+              x = dst
+              return [f"Helsinki-NLP/opus-mt-en-{x}", f"Helsinki-NLP/opus-mt-tc-big-en-{x}",
+                      {"no": "Helsinki-NLP/opus-mt-en-gmq", "pt": "Helsinki-NLP/opus-mt-en-ROMANCE",
+                       "pl": "Helsinki-NLP/opus-mt-en-sla", "ko": "Helsinki-NLP/opus-mt-tc-big-en-ko"}.get(x, ""),
+                      "Helsinki-NLP/opus-mt-en-mul"]
+
+          manifest = {}
+          log = open("out/models-log.txt", "w")
+          def say(*a):
+              print(*a, flush=True); print(*a, file=log, flush=True)
+
+          for lang, iso3 in LANGS.items():
+              for src, dst in ((lang, "en"), ("en", lang)):
+                  name = f"{src}-{dst}"
+                  done = False
+                  for repo in [c for c in candidates(src, dst) if c]:
+                      try:
+                          info = api.model_info(repo, files_metadata=False)
+                      except Exception:
+                          continue
+                      lic = ((info.card_data or {}).get("license") if info.card_data else None) or ""
+                      lic = lic if isinstance(lic, str) else ",".join(lic)
+                      if lic.lower() not in OK:
+                          say(f"{name}: {repo} skipped, licence {lic!r}"); continue
+                      try:
+                          tok = MarianTokenizer.from_pretrained(repo)
+                          model = MarianMTModel.from_pretrained(repo)
+                      except Exception as e:
+                          say(f"{name}: {repo} won't load: {e}"); continue
+                      # Models for several target languages need a language token first.
+                      prefix = ""
+                      if dst != "en":
+                          vocab = tok.get_vocab()
+                          for t in (f">>{iso3}<<", f">>{lang}<<", f">>{iso3}_Latn<<", f">>{iso3}_Hani<<", f">>cmn_Hans<<" if lang == "zh" else "", f">>jpn_Hani<<" if lang == "ja" else "", f">>pt_br<<" if lang == "pt" else ""):
+                              if t and t in vocab: prefix = t; break
+                          if any(k.startswith(">>") for k in vocab) and not prefix:
+                              say(f"{name}: {repo} needs a language token but none fits"); continue
+                      text = TEST["en"] if src == "en" else None
+                      if text:
+                          ids = tok([(prefix + " " if prefix else "") + text], return_tensors="pt")
+                          outp = tok.batch_decode(model.generate(**ids, num_beams=1, max_new_tokens=60), skip_special_tokens=True)[0]
+                          say(f"{name}: {repo} [{lic}] prefix={prefix!r} test: {outp}")
+                      else:
+                          say(f"{name}: {repo} [{lic}]")
+                      d = f"work/{name}"
+                      shutil.rmtree(d, ignore_errors=True)
+                      r = subprocess.run(["optimum-cli", "export", "onnx", "--model", repo, "--task", "text2text-generation", d], capture_output=True, text=True)
+                      if r.returncode != 0 or not os.path.exists(f"{d}/encoder_model.onnx") or not os.path.exists(f"{d}/decoder_model.onnx"):
+                          say(f"{name}: export failed\n{r.stderr[-2000:]}"); continue
+                      z = f"out/opus-mt-{name}.zip"
+                      with zipfile.ZipFile(z, "w", zipfile.ZIP_STORED) as zf:
+                          for part in ("encoder_model", "decoder_model"):
+                              quantize_dynamic(f"{d}/{part}.onnx", f"{d}/{part}.q8.onnx", weight_type=QuantType.QInt8)
+                              zf.write(f"{d}/{part}.q8.onnx", f"{part}.onnx")
+                          tok.save_pretrained(f"{d}/tok")
+                          for f in ("source.spm", "target.spm", "vocab.json"):
+                              zf.write(f"{d}/tok/{f}", f)
+                          cfg = model.config
+                          zf.writestr("model.json", json.dumps({
+                              "repo": repo, "licence": lic, "prefix": prefix,
+                              "decoder_start": cfg.decoder_start_token_id, "eos": cfg.eos_token_id, "pad": cfg.pad_token_id,
+                              "unk": tok.unk_token_id, "max_length": min(cfg.max_length or 512, 512)}))
+                      manifest[name] = {"file": os.path.basename(z), "size": os.path.getsize(z), "repo": repo, "licence": lic}
+                      say(f"{name}: OK {os.path.getsize(z) // 1048576} MB")
+                      done = True
+                      shutil.rmtree(d, ignore_errors=True)
+                      break
+                  if not done: say(f"{name}: NOT AVAILABLE")
+          json.dump(manifest, open("out/manifest.json", "w"), indent=1)
+          say(json.dumps(manifest, indent=1))
+          PY
+          ls -la out
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: translate-models-v1
+          name: Translation models for Windows (OPUS-MT)
+          body: |
+            Caption translation models for AlcorCut Pro for Windows, downloaded by the app when you first translate into a language.
+            OPUS-MT by the Language Technology Research Group at the University of Helsinki (Jörg Tiedemann, Santhosh Thottingal), CC-BY 4.0 or Apache 2.0 — see manifest.json for each model's licence.
+          files: out/*
