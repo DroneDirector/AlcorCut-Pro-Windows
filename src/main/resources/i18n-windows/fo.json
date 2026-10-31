@@ -57,5 +57,12 @@
 "Camera · {0}": "Myndatól · {0}",
 "The phone ended the connection": "Telefonin endaði sambandið",
 "The connection to the phone was lost": "Sambandið við telefonina fór",
-"The phone disconnected": "Telefonin sleit sambandið"
+"The phone disconnected": "Telefonin sleit sambandið",
+"Gyroflow needs motion data: use your phone as the camera (Connect to PC), or a camera that records its own gyro data": "Gyroflow krevur rørsludátur: brúka telefonina sum kamera (Sambind við telduna) ella eitt kamera, sum sjálvt goymir gyrodátur",
+"Stabilization on: the picture is cut in a little to steady it": "Støðugleiki á: myndin verður skorin eitt sindur inn fyri at halda hana støðuga",
+"For a projector or a TV without Chromecast: Windows key + K (wireless display).": "Til ein ljóskastara ella eitt sjónvarp uttan Chromecast: Windows-knøttur + K (trádleys skermur).",
+"No Chromecast or Google TV found on this network yet. Still looking… (the PC and the TV must be on the same network)": "Eingin Chromecast ella Google TV funnin á hesum netverkinum enn. Leiti framvegis… (teldan og sjónvarpið mugu vera á sama netverki)",
+"The connection to the TV was lost": "Sambandið við sjónvarpið fór",
+"The TV closed the player": "Sjónvarpið lat avspælaran aftur",
+"Another app took over the TV": "Ein onnur app tók yvir sjónvarpið"
 }

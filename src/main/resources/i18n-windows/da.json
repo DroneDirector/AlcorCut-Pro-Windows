@@ -57,5 +57,12 @@
 "Camera · {0}": "Kamera · {0}",
 "The phone ended the connection": "Telefonen afsluttede forbindelsen",
 "The connection to the phone was lost": "Forbindelsen til telefonen blev afbrudt",
-"The phone disconnected": "Telefonen afbrød forbindelsen"
+"The phone disconnected": "Telefonen afbrød forbindelsen",
+"Gyroflow needs motion data: use your phone as the camera (Connect to PC), or a camera that records its own gyro data": "Gyroflow kræver bevægelsesdata: brug din telefon som kamera (Forbind til pc) eller et kamera, der selv optager gyrodata",
+"Stabilization on: the picture is cut in a little to steady it": "Stabilisering til: billedet beskæres en smule for at holde det roligt",
+"For a projector or a TV without Chromecast: Windows key + K (wireless display).": "Til en projektor eller et tv uden Chromecast: Windows-tasten + K (trådløs skærm).",
+"No Chromecast or Google TV found on this network yet. Still looking… (the PC and the TV must be on the same network)": "Ingen Chromecast eller Google TV fundet på dette netværk endnu. Leder stadig… (pc'en og tv'et skal være på samme netværk)",
+"The connection to the TV was lost": "Forbindelsen til tv'et blev afbrudt",
+"The TV closed the player": "Tv'et lukkede afspilleren",
+"Another app took over the TV": "En anden app overtog tv'et"
 }
