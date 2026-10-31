@@ -25,9 +25,12 @@ jobs:
           cd dfn/libDF
           # Older "time" versions in the lock file don't build with current Rust.
           cargo update -p time 2>&1 | tail -2 || true
-          cargo build --release --features capi,default-model --lib > ../../cargo.log 2>&1 || { tail -40 ../../cargo.log; exit 1; }
+          # As a Windows library (cdylib) with the C interface.
+          cargo rustc --release --features capi,default-model --lib --crate-type cdylib > ../../cargo.log 2>&1 || { tail -40 ../../cargo.log; exit 1; }
           ls -la ../target/release | tee ../../out/build-log.txt
-          dll=$(ls ../target/release/*.dll | head -1)
+          dll=$(find .. -path "*release*" -name "*.dll" -not -path "*deps*" | head -1)
+          [ -n "$dll" ] || dll=$(find .. -name "*.dll" | grep -i "df\|deep" | head -1)
+          echo "library: $dll"
           cp "$dll" ../../out/df.dll
           cd ../..
           ls -la out
