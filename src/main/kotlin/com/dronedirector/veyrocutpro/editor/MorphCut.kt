@@ -42,7 +42,7 @@ import kotlin.math.roundToInt
  * head glides to its new position instead of jumping or cross-fading.
  */
 object MorphNative {
-    val available: Boolean by lazy { try { System.loadLibrary("veyrocut_morph"); true } catch (_: Throwable) { false } }
+    val available: Boolean by lazy { try { com.dronedirector.veyrocutpro.windows.NativeLibs.load("veyrocut_morph"); true } catch (_: Throwable) { false } }
     @JvmStatic external fun analyze(a: Bitmap, b: Bitmap): Long
     @JvmStatic external fun render(h: Long, t: Float, out: Bitmap): Boolean
     @JvmStatic external fun motion(h: Long, t: Float, buf: ByteBuffer): Boolean

@@ -33,11 +33,19 @@ jobs:
           cmake --build native-build --config Release 2>&1 | tee -a native.log
           mkdir -p packaging/resources/windows/native
           cp native-build/Release/alcorcut_mf.dll packaging/resources/windows/native/
+      - name: Phone native libraries (speech-to-text, voice isolation, morph cut)
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S native/phone-win -B phone-build -A x64 2>&1 | tee phone.log
+          cmake --build phone-build --config Release 2>&1 | tee -a phone.log
+          cp phone-build/Release/*.dll packaging/resources/windows/native/
+          ls -la packaging/resources/windows/native
       - name: Report camera library problems
         if: failure()
         shell: bash
         run: |
-          grep -E "error|warning C4" native.log | head -60 > nproblems.txt || true
+          cat native.log phone.log 2>/dev/null | grep -E " error |error C|error LNK|fatal error" | head -60 > nproblems.txt || true
           msg=$(sed -e 's/%/%25/g' nproblems.txt | awk '{printf "%s%%0A", $0}')
           echo "::error title=Camera library problems::${msg}"
       - name: Picture encoders

@@ -19,6 +19,9 @@ class Bitmap private constructor(private var w: Int, private var h: Int, interna
     enum class CompressFormat { JPEG, PNG, WEBP, WEBP_LOSSY, WEBP_LOSSLESS }
 
     val width: Int get() = w
+    /** The pixels (ARGB) for native code; call [nativeChanged] after writing them. */
+    fun nativePixels(): IntArray = data
+    fun nativeChanged() { gen++ }
     val height: Int get() = h
     var isRecycled = false
         private set

@@ -13,7 +13,7 @@ class VoiceIsolator(private val channels: Int, private val rate: Int, private va
         /** DeepFilterNet3's look-ahead at 48 kHz (two frames); with its analysis frame the output is 1440 samples late (measured). */
         private const val DF_DELAY = 480 * 2
         val available: Boolean by lazy {
-            try { System.loadLibrary("veyrocut_native"); true } catch (_: Throwable) { false }
+            try { com.dronedirector.veyrocutpro.windows.NativeLibs.load("veyrocut_native"); true } catch (_: Throwable) { false }
         }
         /** Where the DeepFilterNet3 model file is (copied out of the app's assets by [prepare]). */
         @Volatile var dfModel: String? = null

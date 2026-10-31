@@ -26,7 +26,7 @@ enum class SpeechModel(val label: String, val file: String, val sizeMb: Int) {
  * downloaded once (MIT-licensed Whisper weights) and kept in the app's files.
  */
 object Transcriber {
-    val available: Boolean by lazy { try { System.loadLibrary("veyrocut_whisper"); true } catch (_: Throwable) { false } }
+    val available: Boolean by lazy { try { com.dronedirector.veyrocutpro.windows.NativeLibs.load("veyrocut_whisper"); true } catch (_: Throwable) { false } }
     @JvmStatic private external fun nativeInit(path: String): Long
     @JvmStatic private external fun nativeFree(h: Long)
     @JvmStatic private external fun nativeTranscribe(h: Long, pcm: FloatArray, lang: String?, threads: Int, prompt: String?): String

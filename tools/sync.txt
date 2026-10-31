@@ -276,3 +276,8 @@ copy editor/VoiceIsolator.kt
 copy editor/Voiceover.kt
 take camera/AudioGain.kt NoiseReducer
 copy editor/PcmFiles.java
+cpp all
+edit editor/MorphCut.kt NativeLoad.py
+edit editor/Transcriber.kt NativeLoad.py
+edit editor/VoiceIsolator.kt NativeLoad.py
+edit editor/CineForm.kt NativeLoad.py

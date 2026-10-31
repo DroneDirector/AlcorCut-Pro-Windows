@@ -30,7 +30,7 @@ object CineForm {
     /** Rough data rate in bits per pixel for each quality (for the size estimate). */
     val BITS_PER_PIXEL = listOf(1.1, 1.5, 2.0, 2.7)
 
-    val available: Boolean by lazy { try { System.loadLibrary("veyrocut_cineform"); true } catch (_: Throwable) { false } }
+    val available: Boolean by lazy { try { com.dronedirector.veyrocutpro.windows.NativeLibs.load("veyrocut_cineform"); true } catch (_: Throwable) { false } }
 
     @JvmStatic private external fun nOpen(fd: Int, w: Int, h: Int, fps: Double, quality: Int, rate: Int, channels: Int): Long
     @JvmStatic private external fun nFrame(h: Long, w: Int, ht: Int, y: ByteBuffer, yOff: Int, yRow: Int, u: ByteBuffer, uOff: Int, v: ByteBuffer, vOff: Int, cRow: Int, cPixel: Int): Boolean

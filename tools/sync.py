@@ -127,6 +127,14 @@ def main():
                 shutil.copyfile(os.path.join(srcd, n), os.path.join(dstd, n))
             open(os.path.join(dstd, 'index.txt'), 'w').write('\n'.join(names) + '\n')
             continue
+        if cmd == 'cpp':
+            # The phone's native code (speech-to-text, voice isolation, morph cut), built for Windows by native/phone-win.
+            import shutil
+            dst = os.path.join(ROOT, 'native/phone')
+            if os.path.isdir(dst):
+                shutil.rmtree(dst)
+            shutil.copytree(os.path.join(sys.argv[1], 'app/src/main/cpp'), dst)
+            continue
         if cmd == 'res':
             import shutil
             dst = os.path.join(ROOT, 'src/main/resources', f)
