@@ -110,7 +110,7 @@ object AudioFiles {
         val fmt = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_OPUS, rate, ch).apply {
             setInteger(MediaFormat.KEY_BIT_RATE, 160_000)
         }
-        val codec = try { MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS) } catch (t: Throwable) { pcm.delete(); return "This phone has no Opus encoder" }
+        val codec = try { MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS) } catch (t: Throwable) { pcm.delete(); return "This PC has no Opus encoder" }
         val muxer = MediaMuxer(out.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_OGG)
         try {
             codec.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)

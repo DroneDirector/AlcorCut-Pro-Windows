@@ -83,6 +83,7 @@ copy editor/SpeedMap.kt
 copy editor/AiDepth.kt
 copy editor/BgRemove.kt
 copy editor/AudioExport.kt
+edit editor/AudioExport.kt AudioExport.py
 copy editor/MagicMask.kt
 copy editor/LayerFx.kt
 take editor/ShapesLottie.kt ShapeKind ShapeRender
@@ -157,6 +158,7 @@ edit editor/LibraryScreen.kt LibraryScreen.py
 edit editor/Shortcuts.kt Shortcuts.py
 edit editor/TextStylePickers.kt TextStylePickers.py
 copy editor/PrivacyBlur.kt
+edit editor/PrivacyBlur.kt PrivacyBlur.py
 copy editor/Stills.kt
 copy editor/VideoLibrary.kt
 assetdir fonts
@@ -226,6 +228,7 @@ copy editor/CornerPin.kt
 copy editor/CutoutPreview.kt
 copy editor/DetailEffect.kt
 copy editor/Dubbing.kt
+edit editor/Dubbing.kt Dubbing.py
 copy editor/EditTemplates.kt
 copy editor/EditorPanels.kt
 copy editor/EditorState.kt
@@ -243,6 +246,7 @@ copy editor/Interchange.kt
 copy editor/LivePreviewFx.kt
 copy editor/Loudness.kt
 copy editor/MagicMaskUi.kt
+edit editor/MagicMaskUi.kt MagicMaskUi.py
 copy editor/MediaStrip.kt
 copy editor/MorphCut.kt
 copy editor/Mp4Meta.kt

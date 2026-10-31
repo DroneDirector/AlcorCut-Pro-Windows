@@ -268,7 +268,7 @@ fun VideoEditorScreen(onExit: () -> Unit, initialUris: List<Uri> = emptyList()) 
             clips.addAll(loaded)
             loading = false
             loaded.firstOrNull { it.undecodable == true }?.let {
-                android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("\"${it.name}\" is 4:2:2 and this phone can't decode it — see the Media page"), android.widget.Toast.LENGTH_LONG).show()
+                android.widget.Toast.makeText(context, com.dronedirector.veyrocutpro.ui.I18n.tr("\"${it.name}\" is 4:2:2 and this PC can't decode it — see the Media page"), android.widget.Toast.LENGTH_LONG).show()
             }
             if (clips.isNotEmpty()) started = true
         }
@@ -987,7 +987,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
         },
         projectExtra = {
             Text("PROJECT ARCHIVE", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(top = 6.dp))
-            Text("One .zip with this edit and every file it uses — to move it to another phone or keep it safe. OPEN ARCHIVE brings one back as a new project.", color = Pro.Dim, fontSize = 12.sp)
+            Text("One .zip with this edit and every file it uses — to move it to another PC or keep it safe. OPEN ARCHIVE brings one back as a new project.", color = Pro.Dim, fontSize = 12.sp)
             if (es.archiveBusy != null) Text("Working… ${es.archiveBusy}%", style = Pro.Label.copy(color = Pro.Amber), modifier = Modifier.padding(vertical = 6.dp))
             else Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 4.dp)) {
                 Text("SAVE ARCHIVE", style = Pro.Label.copy(color = Pro.Amber, fontSize = 10.sp), modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Ed.Raised).clickable { es.archiveAction = 1; es.showSettings = false }.padding(8.dp))
@@ -1244,7 +1244,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
                     if (gpuGrade) {
                         // No effects pipeline in the player: just retry a couple of times.
                         if (es.errorRetries < 2) { es.errorRetries++; load(es.current, pos, p.playWhenReady) }
-                        else es.message = "Can't play this clip on this phone (${error.errorCodeName})"
+                        else es.message = "Can't play this clip on this PC (${error.errorCodeName})"
                         return
                     }
                     if (es.effectsOk) {
@@ -1253,7 +1253,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
                         es.message = "Live grade preview isn't supported here — the grade is still applied on export"
                         load(es.current, pos, p.playWhenReady)
                     } else {
-                        es.message = "Can't play this clip on this phone (${error.errorCodeName})"
+                        es.message = "Can't play this clip on this PC (${error.errorCodeName})"
                     }
                 }
             }.also { p.addListener(it) }
@@ -2145,7 +2145,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
         val caps = layers.filter { it.kind == LayerKind.TEXT && (it.name == "Caption" || it.name == "Word caption") && !it.wholeVideo && it.text.isNotBlank() }.sortedBy { it.startMs }
         if (caps.isEmpty()) { es.message = "Make captions first (AI CAPTIONS), and translate them if you want another language"; return }
         if (lang != "en" && !com.dronedirector.veyrocutpro.camera.CloudAi.useVideo(context) && !com.dronedirector.veyrocutpro.camera.CloudAi.usePhotos(context)) {
-            es.message = "Dubbing in that language uses Cloud AI — add your fal.ai key in Cloud AI settings (English works on the phone)"; return
+            es.message = "Dubbing in that language uses Cloud AI — add your fal.ai key in Cloud AI settings (English works on the PC)"; return
         }
         wx.dubStatus = "Starting…"
         wx.dubJob = layerScope.launch {
@@ -2438,7 +2438,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
         if (es.videoLocked) { es.message = "The video track is locked"; return }
         val c = clips.getOrNull(i) ?: return
         if (wx.flowJob != null) return
-        if (!MorphNative.available) { es.message = "Optical flow isn't available on this phone"; return }
+        if (!MorphNative.available) { es.message = "Optical flow isn't available on this PC"; return }
         if (c.nested != null) { es.message = "Un-nest the clip first (or export it), then smooth it"; return }
         deck.cur.pause()
         wx.flowProgress = 0
@@ -2559,7 +2559,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
     }
     fun transcribeAll() {
         if (wx.tJob != null || clips.isEmpty()) return
-        if (!Transcriber.available) { es.message = "Transcription isn't available on this phone"; return }
+        if (!Transcriber.available) { es.message = "Transcription isn't available on this PC"; return }
         if (!Transcriber.hasModel(context, wx.tModel)) { downloadModel(); es.message = "Downloading the speech model first (${wx.tModel.sizeMb} MB)…"; return }
         wx.tJob = layerScope.launch {
             val list = clips.toList()
@@ -2917,7 +2917,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
         onDismissRequest = { missingAsked = missingKey },
         containerColor = Pro.PanelSolid,
         title = { Text("${missing.size} file(s) are missing", color = Color.White) },
-        text = { Text("Some clips in this project can't be opened (moved, renamed or on a card that isn't in). FIND THEM looks for files with the same name on the phone and links them again. Or use RELINK in the media pool for each one.", color = Pro.Dim) },
+        text = { Text("Some clips in this project can't be opened (moved, renamed or on a card that isn't in). FIND THEM looks for files with the same name on the PC and links them again. Or use RELINK in the media pool for each one.", color = Pro.Dim) },
         confirmButton = { TextButton(onClick = {
             missingAsked = missingKey
             layerScope.launch {
@@ -3476,7 +3476,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
                         tmp.delete()
                         if (out != null) { com.dronedirector.veyrocutpro.ExportService.shareUri = out; com.dronedirector.veyrocutpro.ExportService.shareMime = "video/quicktime" }
                         es.exporting = false; es.progress = 100
-                        es.message = if (out != null) "CineForm .mov exported to " + (SaveFolder.get(context, true)?.let { SaveFolder.label(it) } ?: "DCIM/AlcorCutPro") else why ?: "Export stopped"
+                        es.message = if (out != null) "CineForm .mov exported to " + (SaveFolder.get(context, true)?.let { SaveFolder.label(it) } ?: "Videos\\AlcorCut Pro") else why ?: "Export stopped"
                     }
                 },
                 toFile = tmp,
@@ -3497,7 +3497,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
                 es.message = if (uri != null) {
                     val place = com.dronedirector.veyrocutpro.camera.Storage.load(context, com.dronedirector.veyrocutpro.camera.StorageArea.VIDEO)
                     val folder = SaveFolder.get(context, true)?.let { SaveFolder.label(it) }
-                        ?: ((if (place == com.dronedirector.veyrocutpro.camera.Storage.INTERNAL) "" else com.dronedirector.veyrocutpro.camera.Storage.label(context, place) + " · ") + if (es.deliver.audioOnly) "Music/AlcorCutPro" else "DCIM/AlcorCutPro")
+                        ?: ((if (place == com.dronedirector.veyrocutpro.camera.Storage.INTERNAL) "" else com.dronedirector.veyrocutpro.camera.Storage.label(context, place) + " · ") + if (es.deliver.audioOnly) "Music/AlcorCutPro" else "Videos\\AlcorCut Pro")
                     (if (es.deliver.audioOnly) "Audio exported to " else "Exported to ") + folder
                 } else err ?: "Export failed"
             },
@@ -3597,7 +3597,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
             } catch (_: kotlinx.coroutines.CancellationException) {
                 es.exporting = false; return@launch
             } catch (t: Throwable) {
-                es.message = "Cloud AI unavailable (${t.message}) — using the phone's AI"
+                es.message = "Cloud AI unavailable (${t.message}) — using the PC's AI"
                 es.cloudExport = false
                 clips.toList()
             } finally {
@@ -3697,7 +3697,7 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
             kotlin.concurrent.thread { Team.release(context, t) }
             Team.current = null; host.activeProject()?.team = null
             es.projectId = null
-            if (!quiet) es.message = "\"${t.name}\" is now a normal project on this phone — SAVE keeps it here"
+            if (!quiet) es.message = "\"${t.name}\" is now a normal project on this PC — SAVE keeps it here"
         }
         // Offline stand-ins: black, light video of the given length.
         fun makeStandIn(seconds: Int, w0: Int, h0: Int, done: (Clip?) -> Unit) {
@@ -3937,11 +3937,11 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
             AlertDialog(
                 onDismissRequest = { teamConflict = null }, containerColor = Pro.PanelSolid,
                 title = { Text("${r.by} saved a newer version", color = Color.White) },
-                text = { Text("At " + java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(r.at)) + ", after you opened it. Save yours over it, or save yours as a project on this phone and open theirs later.", color = Pro.Dim) },
+                text = { Text("At " + java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(r.at)) + ", after you opened it. Save yours over it, or save yours as a project on this PC and open theirs later.", color = Pro.Dim) },
                 confirmButton = {
                     Row {
                         TextButton(onClick = { teamConflict = null; teamSave(force = true) }) { Text("Save over it", color = Pro.Red) }
-                        TextButton(onClick = { teamConflict = null; es.askName = true }) { Text("Save on this phone", color = Pro.Amber) }
+                        TextButton(onClick = { teamConflict = null; es.askName = true }) { Text("Save on this PC", color = Pro.Amber) }
                     }
                 },
                 dismissButton = { TextButton(onClick = { teamConflict = null }) { Text("Cancel", color = Color.White) } },
@@ -3950,8 +3950,8 @@ private fun Workspace(clips: MutableList<Clip>, initial: VideoProjectData?, onAd
         if (teamReadOnlyNote) AlertDialog(
             onDismissRequest = { teamReadOnlyNote = false }, containerColor = Pro.PanelSolid,
             title = { Text("Open read-only", color = Color.White) },
-            text = { Text("Someone else has this team project open, so it can't be saved over. Save your version as a project on this phone instead?", color = Pro.Dim) },
-            confirmButton = { TextButton(onClick = { teamReadOnlyNote = false; es.askName = true }) { Text("Save on this phone", color = Pro.Amber) } },
+            text = { Text("Someone else has this team project open, so it can't be saved over. Save your version as a project on this PC instead?", color = Pro.Dim) },
+            confirmButton = { TextButton(onClick = { teamReadOnlyNote = false; es.askName = true }) { Text("Save on this PC", color = Pro.Amber) } },
             dismissButton = { TextButton(onClick = { teamReadOnlyNote = false }) { Text("Cancel", color = Color.White) } },
         )
     }
@@ -5441,7 +5441,7 @@ private fun ProxyPage(
     Chips(ProxyQuality.entries.map { it.label }, settings.quality.ordinal) { onSettings(settings.copy(quality = ProxyQuality.entries[it])) }
     Text(
         when (settings.quality) {
-            ProxyQuality.P360 -> "Fastest and smallest — best for long or many 4K clips on older phones."
+            ProxyQuality.P360 -> "Fastest and smallest — best for long or many 4K clips on slower PCs."
             ProxyQuality.P540 -> "Very light, still easy to judge framing."
             ProxyQuality.P720 -> "Balanced (recommended)."
             ProxyQuality.P1080 -> "Sharpest preview; heavier to make and play."
@@ -5583,7 +5583,7 @@ private fun MediaPage(
                 Text(
                     "Are you sure you want to delete \"${c.name}\" from the media pool?" +
                         (if (uses > 1) " It is used $uses times on the timeline; all of them will be removed." else " It will also be removed from the timeline.") +
-                        " The original on your phone is kept.",
+                        " The original on your PC is kept.",
                     color = Pro.Dim,
                 )
             },
@@ -5633,7 +5633,7 @@ private fun MediaPage(
                         style = Pro.Label,
                     )
                     if (c.undecodable == true) Text(
-                        "This phone has no decoder for ${if (c.chroma == 3) "4:4:4" else "4:2:2"} ${c.mime.removePrefix("video/").uppercase()} — it can't be shown or exported here. Convert it to 4:2:0 (e.g. ProRes / DNxHR → H.265 4:2:0 10-bit) on a computer, or shoot 4:2:0 for phone editing.",
+                        "This PC has no decoder for ${if (c.chroma == 3) "4:4:4" else "4:2:2"} ${c.mime.removePrefix("video/").uppercase()} — it can't be shown or exported here. Convert it to 4:2:0 (e.g. ProRes / DNxHR → H.265 4:2:0 10-bit) on a computer, or shoot 4:2:0 for phone editing.",
                         color = Pro.Red, fontSize = 11.sp,
                     ) else if (c.decoder != null && c.is422) Text(
                         "4:2:2 is read with ${if (c.decoder.startsWith("c2.android") || c.decoder.startsWith("OMX.google")) "Android's software decoder (slower)" else "the phone's hardware decoder"}; add it to the Proxy tab for smooth editing; the export is made from the original (saved as 4:2:0, which phones encode).",
@@ -5670,7 +5670,7 @@ private fun MediaPage(
                 onDismissRequest = { confirmAudio = null },
                 containerColor = Pro.PanelSolid,
                 title = { Text("Delete this file?", color = Color.White) },
-                text = { Text("Are you sure you want to delete \"${a.name}\" from the media pool? It will also be removed from the timeline. The original on your phone is kept.", color = Pro.Dim) },
+                text = { Text("Are you sure you want to delete \"${a.name}\" from the media pool? It will also be removed from the timeline. The original on your PC is kept.", color = Pro.Dim) },
                 confirmButton = { androidx.compose.material3.TextButton(onClick = { onRemoveAudio(a); confirmAudio = null }) { Text("Yes", color = Pro.Red) } },
                 dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmAudio = null }) { Text("No", color = Pro.Amber) } },
             )
@@ -5784,7 +5784,7 @@ private fun EditPage(
         SmallAction(Icons.Filled.Delete, "Delete", onDelete)
     }
     SectionTitle("SMOOTH SLOW MOTION · OPTICAL FLOW")
-    Text("Draws new in-between frames from the motion (on this phone), so slow motion is smooth instead of jerky. Pick the speed, or keep the clip's own speed / ramp.", color = Pro.Dim, fontSize = 11.sp)
+    Text("Draws new in-between frames from the motion (on this PC), so slow motion is smooth instead of jerky. Pick the speed, or keep the clip's own speed / ramp.", color = Pro.Dim, fontSize = 11.sp)
     if (flowProgress >= 0) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
         androidx.compose.material3.LinearProgressIndicator(progress = { flowProgress / 100f }, color = Pro.Amber, modifier = Modifier.weight(1f).height(4.dp))
         Text("$flowProgress%", style = Pro.Label, modifier = Modifier.padding(horizontal = 8.dp))
@@ -5800,7 +5800,7 @@ private fun EditPage(
             }
         }
         SectionTitle("MOTION BLUR")
-        Text("Adds the natural blur of a film camera's shutter to moving things (on this phone) — great for screen recordings, drone shots, fast action and timelapses.", color = Pro.Dim, fontSize = 11.sp)
+        Text("Adds the natural blur of a film camera's shutter to moving things (on this PC) — great for screen recordings, drone shots, fast action and timelapses.", color = Pro.Dim, fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp).hintedScroll(horizontal = true)) {
             PillChip("Light · 90°", false) { onFlow(1, null, 0.25f) }
             PillChip("Natural · 180°", false) { onFlow(1, null, 0.5f) }
@@ -6000,7 +6000,7 @@ private fun ColorPage(
                 text = {
                     Text(
                         "The built-in AI (NAFNet) cleans every single frame of the video when you export. " +
-                            "This is very demanding: depending on your phone's hardware, the clip's length and resolution, " +
+                            "This is very demanding: depending on your PC's hardware, the clip's length and resolution, " +
                             "an export can take from several minutes up to about 1 hour.\n\n" +
                             "You can stop it at any time with the Stop button on the AI badge. " +
                             "The preview shows the normal noise reduction; the AI result appears in the exported video.",
@@ -6048,7 +6048,7 @@ private fun ColorPage(
                 "SELECT THE OBJECT TO REMOVE…", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
                 modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { onErase() }.padding(10.dp),
             )
-            Text("Tap a person, a car, a sign or a wire: Magic Mask follows it, then it's removed — what's behind it is taken from the frames before and after (the real background), and anything never seen is painted by the AI (LaMa, on this phone; the model, ${AiModel.INPAINT.sizeMb} MB, is downloaded once). It takes a while; the clip becomes a new file — undo brings the original back.", color = Pro.Dim, fontSize = 11.sp)
+            Text("Tap a person, a car, a sign or a wire: Magic Mask follows it, then it's removed — what's behind it is taken from the frames before and after (the real background), and anything never seen is painted by the AI (LaMa, on this PC; the model, ${AiModel.INPAINT.sizeMb} MB, is downloaded once). It takes a while; the clip becomes a new file — undo brings the original back.", color = Pro.Dim, fontSize = 11.sp)
             SectionTitle("AI DEPTH") { onChange { it.copy(depth = null) } }
             val dfx = c.depth
             fun dset(f: (DepthFx) -> DepthFx) = onChange { cl -> cl.copy(depth = f(cl.depth ?: DepthFx())) }
@@ -6087,7 +6087,7 @@ private fun ColorPage(
                 }
                 Chips(listOf("Picture", "Show depth map"), if (dfx.showMap == true) 1 else 0) { i -> dset { it.copy(showMap = (i == 1).takeIf { v -> v }) } }
             }
-            Text("The AI works out how far away every part of the picture is (Depth Anything V2, on this phone — the model, ${AiModel.DEPTH.sizeMb} MB, is downloaded once). Then: a lens blur that keeps the chosen distance sharp, fog that thickens with distance, or a darker / calmer background behind your subject. Show depth map helps set the focus (white = near).", color = Pro.Dim, fontSize = 11.sp)
+            Text("The AI works out how far away every part of the picture is (Depth Anything V2, on this PC — the model, ${AiModel.DEPTH.sizeMb} MB, is downloaded once). Then: a lens blur that keeps the chosen distance sharp, fog that thickens with distance, or a darker / calmer background behind your subject. Show depth map helps set the focus (white = near).", color = Pro.Dim, fontSize = 11.sp)
             SectionTitle("FINISHING")
             EdSlider("Vignette", c.detail.vignette) { v -> detail { it.copy(vignette = v) } }
             EdSlider("Film grain", c.detail.grain, 0f..1f, format = ::pct) { v -> detail { it.copy(grain = v) } }
@@ -6166,7 +6166,7 @@ private fun AudioPage(
         "MAKE VOICEOVER AT THE PLAYHEAD", style = Pro.Label.copy(color = if (ttsText.isNotBlank()) Pro.Amber else Pro.Dim, fontSize = 11.sp),
         modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable(enabled = ttsText.isNotBlank()) { onTts(ttsText, Voiceover.voices[ttsVoice], ttsSpeed) }.padding(10.dp),
     )
-    Text("A natural AI voice reads your text (Kokoro, on this phone — the voice model, ${AiModel.VOICE.sizeMb} MB, is downloaded once). It's added as an audio track at the playhead; numbers, money and times are read out properly.", color = Pro.Dim, fontSize = 11.sp)
+    Text("A natural AI voice reads your text (Kokoro, on this PC — the voice model, ${AiModel.VOICE.sizeMb} MB, is downloaded once). It's added as an audio track at the playhead; numbers, money and times are read out properly.", color = Pro.Dim, fontSize = 11.sp)
     SectionTitle("VOICEOVER")
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -6228,7 +6228,7 @@ private fun AudioPage(
         Text("VOICE NOISE REDUCTION", style = Pro.Label, modifier = Modifier.padding(top = 6.dp))
         Chips(listOf("Off", "Light", "Strong", "Voice isolation (AI)", "Studio voice (AI)"), c.audio.denoise.coerceIn(0, 4)) { i -> onChange { it.copy(audio = it.audio.copy(denoise = i)) } }
         if (c.audio.denoise == 3) Text("Keeps the voice and removes wind, traffic, hum, crowd and background music — on export. Works best on speech.", color = Pro.Dim, fontSize = 11.sp)
-        if (c.audio.denoise >= 4) Text("Studio voice: DeepFilterNet3, the cleanest AI voice clean-up — removes noise of every kind and takes room echo down, keeping the voice natural. On export, on the phone.", color = Pro.Dim, fontSize = 11.sp)
+        if (c.audio.denoise >= 4) Text("Studio voice: DeepFilterNet3, the cleanest AI voice clean-up — removes noise of every kind and takes room echo down, keeping the voice natural. On export, on the PC.", color = Pro.Dim, fontSize = 11.sp)
         Text("REPAIR", style = Pro.Label, modifier = Modifier.padding(top = 6.dp))
         Chips(listOf("Clicks off", "Remove clicks & crackle"), if (c.audio.declick) 1 else 0) { i -> onChange { it.copy(audio = it.audio.copy(declick = i == 1)) } }
         EdSlider("Remove room echo", c.audio.dereverb, 0f..1f, 0f, ::pct) { v -> onChange { it.copy(audio = it.audio.copy(dereverb = v)) } }
@@ -6791,7 +6791,7 @@ private fun LayersPage(
         dubStatus?.let { "$it · tap to stop" } ?: "DUB THE CAPTIONS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
         modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { onDub(Dubbing.LANGS[dubLang].second, dubMan, dubMute) }.padding(10.dp),
     )
-    Text("Speaks the captions at their times as a new audio track. Translate the captions first (below) for another language — pick the same language here. English is made on the phone; other languages use Cloud AI (ElevenLabs via your fal.ai account, about \$0.10 per 1,000 characters).", color = Pro.Dim, fontSize = 11.sp)
+    Text("Speaks the captions at their times as a new audio track. Translate the captions first (below) for another language — pick the same language here. English is made on the PC; other languages use Cloud AI (ElevenLabs via your fal.ai account, about \$0.10 per 1,000 characters).", color = Pro.Dim, fontSize = 11.sp)
     SectionTitle("TRANSLATE CAPTIONS")
     var trTo by remember { mutableStateOf(0) }
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.hintedScroll(horizontal = true).padding(vertical = 4.dp)) {
@@ -6804,7 +6804,7 @@ private fun LayersPage(
         "TRANSLATE ALL CAPTIONS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp),
         modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { onTranslate(CaptionTranslate.targets[trTo].first) }.padding(10.dp),
     )
-    Text("Translates every caption layer (AI captions and word-by-word captions) on the phone; the language is found by itself. Each language pack (about 30 MB) is downloaded once. Undo brings the originals back. Translated by Google.", color = Pro.Dim, fontSize = 11.sp)
+    Text("Translates every caption layer (AI captions and word-by-word captions) on the PC; the language is found by itself. Each language pack (about 30 MB) is downloaded once. Undo brings the originals back. Translated by Google.", color = Pro.Dim, fontSize = 11.sp)
     SectionTitle("DRONE TELEMETRY")
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.hintedScroll(horizontal = true)) {
         val t = telemetryShow
@@ -7143,7 +7143,7 @@ Thanks for watching""", size = 0.045f, y = 0.5f, startMs = from, endMs = total, 
         } else l.layerMagic?.let { mg -> Text(if (mg.frames > 0) "✓ Tracked through ${mg.frames} frames" else "Not tracked yet", style = Pro.Label.copy(color = if (mg.frames > 0) Pro.Green else Pro.Dim), modifier = Modifier.padding(vertical = 4.dp)) }
         if (l.layerMagic != null) Text("CHANGE SELECTION…", style = Pro.Label.copy(color = Pro.Amber, fontSize = 11.sp), modifier = Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(8.dp)).background(Ed.Raised).clickable { onMagicLayer(l.id) }.padding(10.dp))
         if (l.bgRemove == true) Chips(listOf("Keep the subject", "Remove the subject (invert)"), if (l.bgInvert == true) 1 else 0) { onUpdate(l.copy(bgInvert = (it == 1).takeIf { v -> v })) }
-        Text("AI cuts the subject out of this video layer (on the phone), so only it appears over your main video. People are found automatically; Magic Mask follows anything you tap.", color = Pro.Dim, fontSize = 11.sp)
+        Text("AI cuts the subject out of this video layer (on the PC), so only it appears over your main video. People are found automatically; Magic Mask follows anything you tap.", color = Pro.Dim, fontSize = 11.sp)
         Text("Frame shape crops the video to fill it (e.g. 1:1 or 9:16 picture-in-picture). Corners, border and shadow show in the preview and the export.", color = Pro.Dim, fontSize = 11.sp)
     }
     // With keyframes, the controls show (and edit) the layer as it is at the playhead.
@@ -7363,10 +7363,10 @@ private fun DeliverPage(
             val otherFps = remember(ow, oh, s.hevc) { EncoderCaps.maxFps(EncoderCaps.mimeOf(!s.hevc), ow, oh) }
             val wantFps = if (s.fps > 0) s.fps.toDouble() else 30.0
             val msg = when {
-                bigFps <= 0.0 && otherFps > 0.0 -> "$big ($ow×$oh) needs ${if (s.hevc) "H.264" else "HEVC"} on this phone — switch the codec below."
-                bigFps <= 0.0 -> "This phone's video encoder can't make $big ($ow×$oh). The export would come out smaller — choose 4K UHD or less."
-                bigFps + 0.5 < wantFps -> "$big ($ow×$oh) works on this phone up to ${bigFps.toInt()} fps — set the frame rate to ${bigFps.toInt()} or less."
-                else -> "$big ($ow×$oh) is supported by this phone's encoder (up to ${bigFps.toInt()} fps). Use a high bitrate (120–200 Mbps) for the detail; exports take longer."
+                bigFps <= 0.0 && otherFps > 0.0 -> "$big ($ow×$oh) needs ${if (s.hevc) "H.264" else "HEVC"} on this PC — switch the codec below."
+                bigFps <= 0.0 -> "This PC's video encoder can't make $big ($ow×$oh). The export would come out smaller — choose 4K UHD or less."
+                bigFps + 0.5 < wantFps -> "$big ($ow×$oh) works on this PC up to ${bigFps.toInt()} fps — set the frame rate to ${bigFps.toInt()} or less."
+                else -> "$big ($ow×$oh) is supported by this PC's encoder (up to ${bigFps.toInt()} fps). Use a high bitrate (120–200 Mbps) for the detail; exports take longer."
             }
             Text(msg, color = if (bigFps <= 0.0 || bigFps + 0.5 < wantFps) Pro.Red else Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
         }
@@ -7391,7 +7391,7 @@ private fun DeliverPage(
             Chips(CineForm.QUALITIES, s.cineform) { onChange(s.copy(cineform = it)) }
             Text(
                 "A professional editing codec (10-bit 4:2:2, every frame stands alone, uncompressed sound) in a .mov — for finishing on a computer: it opens in the main desktop editing and effects programs and plays smoothly while you cut. Files are large (≈ ${"%.0f".format(ow.toDouble() * oh * outFps * CineForm.BITS_PER_PIXEL[s.cineform] / 1_000_000)} Mbps). The edit is rendered first, then converted, so it takes longer than a normal export." +
-                    if (!CineForm.available) " Not available on this phone." else "",
+                    if (!CineForm.available) " Not available on this PC." else "",
                 color = if (CineForm.available) Pro.Dim else Pro.Red, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp),
             )
         } else {
@@ -7417,7 +7417,7 @@ private fun DeliverPage(
         }
     }
     Text(
-        "Timeline ${tc(total)} · ${clips.size} clips. The real size can differ a little${if (s.bitrateMbps == 0) " (on Auto the phone's encoder decides the bitrate)" else ""}. If the phone's encoder can't do the chosen size or bitrate, the closest supported setting is used.",
+        "Timeline ${tc(total)} · ${clips.size} clips. The real size can differ a little${if (s.bitrateMbps == 0) " (on Auto the PC's encoder decides the bitrate)" else ""}. If the PC's encoder can't do the chosen size or bitrate, the closest supported setting is used.",
         color = Pro.Dim, fontSize = 11.sp, modifier = Modifier.padding(vertical = 8.dp),
     )
     Text(
@@ -7504,7 +7504,7 @@ private fun DeliverPage(
     Chips(fps.map { if (it == 0) "Source" else "$it fps" }, fps.indexOf(s.fps).coerceAtLeast(0)) { onChange(s.copy(fps = fps[it])) }
     SectionTitle("DYNAMIC RANGE")
     Chips(listOf("SDR (plays everywhere)", "Keep HDR (HLG / HDR10)"), if (s.keepHdr) 1 else 0) { onChange(s.copy(keepHdr = it == 1)) }
-    Text(if (s.keepHdr) "HDR clips stay HDR in a 10-bit HEVC file — brighter highlights on HDR screens (YouTube, Instagram, newer phones). Works best with light grading; if the export fails on this phone, switch back to SDR." else "HDR clips are converted to standard range so they look right on every screen.", color = Pro.Dim, fontSize = 11.sp)
+    Text(if (s.keepHdr) "HDR clips stay HDR in a 10-bit HEVC file — brighter highlights on HDR screens (YouTube, Instagram, newer phones). Works best with light grading; if the export fails on this PC, switch back to SDR." else "HDR clips are converted to standard range so they look right on every screen.", color = Pro.Dim, fontSize = 11.sp)
     if (s.audio || s.audioOnly) {
         SectionTitle("LOUDNESS")
         val opts = listOf<Float?>(null) + Loudness.TARGETS
@@ -7918,7 +7918,7 @@ private fun TextEditPage(
 ) {
     SectionTitle("TEXT-BASED EDITING")
     Text(
-        "Your edit as text, made on this phone (nothing is uploaded). Tap words to cut them — they turn red — then APPLY CUTS. Hold a word to jump there.",
+        "Your edit as text, made on this PC (nothing is uploaded). Tap words to cut them — they turn red — then APPLY CUTS. Hold a word to jump there.",
         color = Pro.Dim, fontSize = 11.sp,
     )
     Text("Speech model", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
@@ -7986,7 +7986,7 @@ private fun TextEditPage(
         modifier = Modifier.padding(top = 10.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (deleted > 0) Pro.Amber else Ed.Raised).clickable(enabled = deleted > 0) { onApply() }.padding(12.dp),
     )
     SectionTitle("WORD-BY-WORD CAPTIONS")
-    Text("Animated captions from the transcript: each word lights up as it's spoken (like Reels / TikTok / Shorts). Made on the phone; cut words are left out.", color = Pro.Dim, fontSize = 11.sp)
+    Text("Animated captions from the transcript: each word lights up as it's spoken (like Reels / TikTok / Shorts). Made on the PC; cut words are left out.", color = Pro.Dim, fontSize = 11.sp)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.hintedScroll(horizontal = true).padding(vertical = 4.dp)) {
         listOf("Highlight", "Box", "One word", "Two lines").forEachIndexed { k, n -> PillChip(n, false) { onWordCaptions(k) } }
     }

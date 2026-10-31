@@ -499,7 +499,10 @@ internal abstract class Encoder {
     abstract fun close()
     companion object {
         fun open(path: String, w: Int, h: Int, fps: Float, bitrate: Int, hevc: Boolean, audio: Boolean): Encoder {
-            if (!MfNative.ok) return DevEncoder(path, w, h, fps, audio)
+            if (!MfNative.ok) {
+                if (DevTools.windows) throw ExportException("Windows' media engine couldn't start — reinstall AlcorCut Pro", null, ExportException.ERROR_CODE_ENCODER_INIT_FAILED)
+                return DevEncoder(path, w, h, fps, audio)
+            }
             val rec = MfNative.recOpen(path, w, h, Math.round(fps * 1000), 1000, bitrate, hevc, if (audio) 48000 else 0, if (audio) 2 else 0)
             if (rec == 0L) throw ExportException(MfNative.error().ifBlank { "The encoder couldn't start" } + if (hevc) " (HEVC needs Windows' HEVC Video Extensions)" else "", null, ExportException.ERROR_CODE_ENCODER_INIT_FAILED)
             return object : Encoder() {

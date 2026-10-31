@@ -284,7 +284,7 @@ fun PrivacySection(c: Clip, srcNow: Long, onChange: ((Clip) -> Clip) -> Unit) {
     var picking by remember { mutableStateOf(false) }
     val pb = c.privacy ?: PrivacyBlur()
     SectionTitle("PRIVACY BLUR") { onChange { it.copy(privacy = null) } }
-    Text("Blur faces and anything else you choose (number plates, screens, signs). Faces are found on the phone and followed through the clip; a spot you tap is followed as it moves.", color = Pro.Dim, fontSize = 11.sp)
+    Text("Blur faces and anything else you choose (number plates, screens, signs). Faces are found on the PC and followed through the clip; a spot you tap is followed as it moves.", color = Pro.Dim, fontSize = 11.sp)
     val faces = pb.tracks.count { it.face }; val spots = pb.tracks.count { !it.face }
     if (pb.active) Text("$faces face" + (if (faces == 1) "" else "s") + " · $spots spot" + (if (spots == 1) "" else "s"), color = Pro.Amber, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
     busy?.let { Text(it, color = Pro.Amber, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) }

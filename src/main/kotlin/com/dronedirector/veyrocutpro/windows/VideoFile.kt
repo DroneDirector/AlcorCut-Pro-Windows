@@ -31,6 +31,7 @@ class VideoFile(val file: File, maxW: Int = 0, maxH: Int = 0) : AutoCloseable {
             info = MediaInfo(v[0] / 10, v[1].toInt(), v[2].toInt(), if (v[4] > 0) v[3].toFloat() / v[4] else 30f, v[5].toInt(), v[6] != 0L, v[7] != 0L)
             width = v[8].toInt(); height = v[9].toInt()
         } else {
+            if (DevTools.windows) throw java.io.IOException(MfNative.error().ifBlank { "Windows' media engine couldn't start — reinstall AlcorCut Pro" })
             val t = TestReader(file, maxW, maxH); test = t
             info = t.info; width = t.w; height = t.h
         }
@@ -103,7 +104,10 @@ class AudioFile(val file: File) : AutoCloseable {
         if (MfNative.ok) {
             h = MfNative.fileOpen(file.absolutePath, 1, 0, 0)
             if (h == 0L) throw java.io.IOException(MfNative.error().ifBlank { "Couldn't read the sound of ${file.name}" })
-        } else test = TestAudio(file)
+        } else {
+            if (DevTools.windows) throw java.io.IOException("Windows' media engine couldn't start — reinstall AlcorCut Pro")
+            test = TestAudio(file)
+        }
     }
 
     /** A block of sound: [n] stereo frames starting at [timeUs]. */
@@ -215,4 +219,9 @@ object MediaFiles {
         cache[key] = f
         return f
     }
+}
+
+/** The development readers and writer use a separate program on Linux test machines only; never on Windows. */
+internal object DevTools {
+    val windows: Boolean = System.getProperty("os.name").lowercase().contains("win")
 }

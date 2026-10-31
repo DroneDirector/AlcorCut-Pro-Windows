@@ -133,8 +133,12 @@ jobs:
           msg=$(sed -e 's/%/%25/g' problems.txt | awk '{printf "%s%%0A", $0}')
           echo "::error title=Build problems::${msg}"
       - name: Keep compile jars on a side branch
+        # Only for compile checks outside CI; never fails the build.
+        continue-on-error: true
         run: |
           cd build/classpath
+          # GitHub refuses files over 100 MB.
+          find . -type f -size +95M -print -delete
           ls -R | head -80
           git init -q -b classpath
           git config user.name "DroneDirector"

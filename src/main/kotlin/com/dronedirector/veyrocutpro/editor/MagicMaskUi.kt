@@ -71,7 +71,7 @@ fun MagicMaskDialog(target: MagicTarget, onDismiss: () -> Unit, onTrack: (MagicS
         frame = f
         status = "Preparing the AI…"
         val e = withContext(Dispatchers.Default) { try { Sam.encode(context, f) } catch (_: Throwable) { null } }
-        if (e == null) { status = "The AI couldn't start on this phone" + (Sam.failed?.let { " ($it)" } ?: ""); return@LaunchedEffect }
+        if (e == null) { status = "The AI couldn't start on this PC" + (Sam.failed?.let { " ($it)" } ?: ""); return@LaunchedEffect }
         emb = e
         status = "Tap the object you want. Tap “Not it” and tap again to leave something out, or drag a box round it."
     }
@@ -159,7 +159,7 @@ fun MagicMaskDialog(target: MagicTarget, onDismiss: () -> Unit, onTrack: (MagicS
                         onTrack(MagicSel(id = java.util.UUID.randomUUID().toString(), srcMs = target.srcMs, points = points, choice = choice))
                     }.padding(vertical = 12.dp),
             )
-            Text("The AI follows the object frame by frame (on the phone). It takes a little while — you can keep editing.", color = Pro.Dim, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+            Text("The AI follows the object frame by frame (on the PC). It takes a little while — you can keep editing.", color = Pro.Dim, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
