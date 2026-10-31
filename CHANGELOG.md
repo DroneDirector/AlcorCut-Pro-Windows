@@ -17,6 +17,7 @@
 - **Level** (Settings → Level): on tablets and 2-in-1 PCs with a motion sensor, and with your phone as the camera (it follows the phone's tilt).
 - **Flash and torch for PC cameras**: Flash ON / AUTO turns the screen white for the photo, lighting a face in front of the webcam; network video lights (Elgato Key Light and alike) flash to full with it, and TORCH turns them on.
 - **Macro** (Settings → Macro): webcams with adjustable focus focus as close as they go.
+- **HDR and Night scenes** for PC cameras (PHOTO → SCENE): HDR takes three exposures and merges them on the PC; Night stacks eight pictures for a cleaner photo in low light.
 - Remote monitor from a browser, microphone and speaker choice (Audio hardware), and the Capture gallery (videos play in Windows' own player).
 - **Faster and smoother**: the photo on screen is only redrawn when it changes, so sliders, zooming and the panels respond much more quickly (it was copied again for every screen update before).
 - Everything new in the phone app's photo editor: photo layers with blend modes, colour samplers, focus mask, MERGE PHOTOS ▾ in the toolbar, HDR without ghosts, long exposure from a video (comes with the video editor on Windows), swipe between photos, NEXT UNEDITED →, recently used tools, recent projects next to the catalog card.

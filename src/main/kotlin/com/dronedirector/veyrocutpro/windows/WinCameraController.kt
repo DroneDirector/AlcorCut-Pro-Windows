@@ -460,7 +460,7 @@ class ProCameraController(private val context: Context) {
                 isoStops = isos, shutterStops = shutters,
                 minFocusDiopters = if (focusCtl != null) 10f else 0f,
                 evMin = if (brightCtl != null) -6 else 0, evMax = if (brightCtl != null) 6 else 0, evStep = 1f / 3f,
-                rawSupported = false, hasFlash = true, scenes = listOf(Scene.STANDARD),
+                rawSupported = false, hasFlash = true, scenes = listOf(Scene.STANDARD, Scene.HDR, Scene.NIGHT),
                 videoResolutions = res.ifEmpty { listOf(VideoRes.HD) },
                 videoRes = if (s.videoRes in res) s.videoRes else res.firstOrNull { it == VideoRes.FHD } ?: res.firstOrNull() ?: VideoRes.HD,
                 fpsOptions = fpsList, fps = if (s.fps in fpsList) s.fps else fpsList.firstOrNull { it == 30 } ?: fpsList.first(),
@@ -470,7 +470,7 @@ class ProCameraController(private val context: Context) {
                 minZoom = 1f, maxZoom = maxZoom, zoom = 1f,
                 slowMoFps = slow.filter { it < 100 }, superSlowMoFps = slow.filter { it >= 100 }, slowFallbackFps = 0,
                 slowFps = slow.maxOrNull() ?: 0,
-                flash = FlashSetting.OFF, scene = Scene.STANDARD,
+                flash = FlashSetting.OFF, scene = if (s.scene in listOf(Scene.HDR, Scene.NIGHT)) s.scene else Scene.STANDARD,
                 photoFormat = PhotoFormat.JPEG,
                 previewStabilizationSupported = false,
             )
@@ -1018,7 +1018,63 @@ class ProCameraController(private val context: Context) {
     }
     fun setPhotoFormat(f: PhotoFormat) { if (fwd("format", f.name)) return; if (f != PhotoFormat.JPEG) toast("RAW comes with tethered cameras") }
     fun setAspect(a: AspectMode) { set { it.copy(aspect = a) } }
-    fun setScene(scene: Scene) {}
+    /** Scene modes on PC cameras, made on the PC from several pictures: HDR (bracketed and merged) and Night (stacked). */
+    fun setScene(scene: Scene) {
+        if (phone != null || tether != null || cam == null) return
+        if (scene !in st.scenes) return
+        set { it.copy(scene = scene) }
+        when (scene) {
+            Scene.HDR -> toast(if (exposureCtl != null) "HDR: three exposures merged on the PC — hold still" else "HDR: this camera has no exposure control, so the photo is evened out from several pictures")
+            Scene.NIGHT -> toast("Night: eight pictures stacked for less noise — hold still or use a stand")
+            else -> {}
+        }
+    }
+
+    private suspend fun grab(): IntArray? = synchronized(latestLock) { latest?.copyOf() }
+
+    /** Several pictures for the HDR and Night scenes, merged with the editor's merge. */
+    private suspend fun sceneShot(): Triple<IntArray, Int, Int>? {
+        val s = st
+        if (phone != null || tether != null || (s.scene != Scene.HDR && s.scene != Scene.NIGHT) || s.mode != CaptureMode.PHOTO || s.burst > 1) return null
+        val w = latestW; val h = latestH
+        val gap = (1000L / s.fps.coerceAtLeast(5)) + 15
+        val frames = ArrayList<IntArray>()
+        set { it.copy(processing = true) }
+        try {
+            if (s.scene == Scene.HDR && exposureCtl != null) {
+                val e = exposureCtl!!; val c = cam ?: return null
+                for (d in intArrayOf(0, -2, 2)) {
+                    withContext(Dispatchers.IO) { c.set(0, PcCamera.EXPOSURE, (e.value + d).coerceIn(e.min, e.max), false) }
+                    delay(450)
+                    grab()?.let { frames += it }
+                }
+                applyControls()
+            } else {
+                repeat(if (s.scene == Scene.NIGHT) 8 else 5) { grab()?.let { frames += it }; delay(gap) }
+            }
+            if (frames.size < 2) return null
+            val dir = java.io.File(System.getProperty("java.io.tmpdir"), "alcorcut-scene").apply { mkdirs() }
+            val uris = frames.mapIndexed { i, px ->
+                val f = java.io.File(dir, "f$i.png")
+                val img = java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB); img.setRGB(0, 0, w, h, px, 0, w)
+                javax.imageio.ImageIO.write(img, "png", f)
+                android.net.Uri.fromFile(f)
+            }
+            val kind = if (s.scene == Scene.HDR && exposureCtl != null) com.dronedirector.veyrocutpro.editor.MergeKind.HDR else com.dronedirector.veyrocutpro.editor.MergeKind.NOISE
+            val out = withContext(Dispatchers.Default) { try { com.dronedirector.veyrocutpro.editor.Merge.run(context, kind, uris) {} } catch (_: Throwable) { null } }
+            dir.listFiles()?.forEach { it.delete() }
+            out ?: return null
+            val px = IntArray(out.width * out.height); out.getPixels(px, 0, out.width, 0, 0, out.width, out.height)
+            if (s.scene == Scene.HDR && exposureCtl == null) evenOut(px)
+            return Triple(px, out.width, out.height)
+        } finally { set { it.copy(processing = false) } }
+    }
+
+    /** Lifts shadows and holds highlights (one exposure, so a gentle curve). */
+    private fun evenOut(px: IntArray) {
+        val lut = IntArray(256) { v -> val x = v / 255.0; (255 * (x + 0.35 * x * (1 - x) * (1 - x) * 2.2 - 0.12 * x * x * (x - 0.6).coerceAtLeast(0.0) * 4)).toInt().coerceIn(0, 255) }
+        for (i in px.indices) { val c = px[i]; px[i] = (0xFF shl 24) or (lut[c shr 16 and 0xFF] shl 16) or (lut[c shr 8 and 0xFF] shl 8) or lut[c and 0xFF] }
+    }
     fun setTimer(sec: Int) { if (!fwd("timer", sec)) set { it.copy(timerSec = sec) } }
     fun setBurst(count: Int) = set { it.copy(burst = count) }
     fun setGrid(g: GridMode) = set { it.copy(grid = g) }
@@ -1416,7 +1472,8 @@ class ProCameraController(private val context: Context) {
     /** One photo: the camera's full picture (filter applied), with the camera details in the file. */
     private suspend fun takePhoto(): Boolean {
         val flashed = flashUp()
-        val raw = photoSrc?.let { ps -> Triple(IntArray(ps.size).also { ColorPipe(st.filter, 0, null).apply(ps, it, ps.size) }, latestW, latestH) }
+        val scene = sceneShot()
+        val raw = scene ?: photoSrc?.let { ps -> Triple(IntArray(ps.size).also { ColorPipe(st.filter, 0, null).apply(ps, it, ps.size) }, latestW, latestH) }
             ?: synchronized(latestLock) { latest?.let { Triple(it.copyOf(), latestW, latestH) } } ?: run { if (flashed) flashDown(); return false }
         if (flashed) flashDown()
         playSound(MediaActionSound.SHUTTER_CLICK)
