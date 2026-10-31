@@ -53,7 +53,9 @@ jobs:
           lib.df_create.argtypes = [ctypes.c_char_p, ctypes.c_float, ctypes.c_char_p]
           lib.df_get_frame_length.argtypes = [ctypes.c_void_p]; lib.df_get_frame_length.restype = ctypes.c_size_t
           lib.df_process_frame.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]; lib.df_process_frame.restype = ctypes.c_float
-          st = lib.df_create(None, 100.0, None)
+          # The app gives the model file, as on the phone.
+          st = lib.df_create(os.path.abspath("dfn/models/DeepFilterNet3_onnx.tar.gz").encode(), 100.0, None)
+          assert st, "df_create failed"
           n = lib.df_get_frame_length(st)
           rng = np.random.default_rng(1)
           t = np.arange(48000 * 3) / 48000
