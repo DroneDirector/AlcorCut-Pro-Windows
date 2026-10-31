@@ -19,8 +19,14 @@ jobs:
           python-version: '3.11'
       - name: Tools
         run: |
-          pip install --quiet torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
-          pip install --quiet "transformers==4.44.2" "optimum[onnxruntime]==1.21.4" "onnx==1.16.2" "onnxruntime==1.19.2" sentencepiece sacremoses "huggingface_hub<0.26" "numpy<2"
+          set -o pipefail
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu 2>&1 | tail -3 | tee pip.log
+          pip install "transformers==4.43.4" "optimum[exporters]==1.21.4" "onnx==1.16.2" "onnxruntime==1.19.2" sentencepiece sacremoses "huggingface_hub<0.26" "numpy<2" 2>&1 | tee -a pip.log | tail -5
+      - name: Report tool problems
+        if: failure()
+        run: |
+          msg=$(grep -iE "error|conflict|requires" pip.log | head -20 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Tools::${msg}"
       - name: Convert
         run: |
           mkdir -p out
