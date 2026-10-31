@@ -181,6 +181,7 @@ private fun sectionsFor(v: GuideVariant): List<GuideSection> = when (v) {
         ), numbered = false),
         GuideSection(GuideTopic.GENERAL, "General", Icons.Filled.Tune, null, listOf(
             "Start screen → gear → What's new lists what changed in the last three versions, for the whole app — each version in its own fold-out, the latest open. In Capture, the Photo editor and the Video editor, gear → App → ★ WHAT'S NEW shows only the changes for that part.",
+            "Updates: the app checks for a new version when it starts (at most every six hours) and shows a notice when one is ready. Gear → UPDATES shows the installed version, CHECK NOW, and WHAT'S NEW · INSTALL: every version since yours with its changes (in Capture and the editors, that part's changes first), then DOWNLOAD AND INSTALL with a progress bar. An update always installs the whole app; projects, photos and settings are kept. The first time, Android asks you to allow AlcorCut Pro to install apps. Start screen → gear: switch automatic checks off, or choose which parts (Capture, Photo editor, Video editor) notify you — the changes you skipped are still listed when you update.",
             "Start screen → gear → Home-screen shortcuts: turn it on, then add separate icons for Capture, the Photo editor or the Video editor to your phone's home screen — each opens straight into that part of the app.",
             "Change the app colour under APP COLOUR.",
             "\"Always start in Capture\" opens the app straight into the camera.",

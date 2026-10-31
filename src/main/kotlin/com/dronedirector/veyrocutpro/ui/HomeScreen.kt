@@ -201,6 +201,8 @@ private fun HubLayout(title: String, subtitle: String, onBack: (() -> Unit)?, ti
                 }
                 if (settings) AppSettingsDialog { settings = false }
             }
+            // A new version is ready: a strip at the top that opens what's new and the install.
+            if (showVersion) UpdateStrip(Modifier.align(Alignment.TopCenter).padding(horizontal = 56.dp))
             if (showVersion && version.isNotEmpty()) {
                 Text(
                     "v$version",

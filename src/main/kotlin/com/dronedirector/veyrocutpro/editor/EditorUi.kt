@@ -542,6 +542,7 @@ fun EditorSettingsBody(
                     com.dronedirector.veyrocutpro.ui.EditorTourSettings(gv, onShow = onDismiss)
                     com.dronedirector.veyrocutpro.ui.GuideButton(gv)
                     com.dronedirector.veyrocutpro.ui.WhatsNewButton(if (isVideo) com.dronedirector.veyrocutpro.ui.NewsArea.VIDEO else com.dronedirector.veyrocutpro.ui.NewsArea.PHOTO, onDismiss)
+                    com.dronedirector.veyrocutpro.ui.UpdatesSection(if (isVideo) com.dronedirector.veyrocutpro.ui.NewsArea.VIDEO else com.dronedirector.veyrocutpro.ui.NewsArea.PHOTO, onDismiss)
                     com.dronedirector.veyrocutpro.ui.LicensesButton()
                     com.dronedirector.veyrocutpro.ui.PrivacyButton()
                 }

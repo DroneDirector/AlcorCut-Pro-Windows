@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -87,7 +88,8 @@ fun AppSettingsDialog(onClose: () -> Unit) {
     var note by remember { mutableStateOf<String?>(null) }
     Dialog(onDismissRequest = onClose) {
         Column(
-            Modifier.widthIn(max = 460.dp).clip(RoundedCornerShape(18.dp)).background(AppTheme.pick(Color(0xFF15171C), Color(0xFFF4F5F7))).padding(18.dp),
+            Modifier.widthIn(max = 460.dp).clip(RoundedCornerShape(18.dp)).background(AppTheme.pick(Color(0xFF15171C), Color(0xFFF4F5F7)))
+                .verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("SETTINGS", style = Pro.Label.copy(color = Pro.Amber, fontSize = 13.sp, letterSpacing = 2.sp))
@@ -126,6 +128,9 @@ fun AppSettingsDialog(onClose: () -> Unit) {
                 }
                 Text("→", color = Pro.Amber, fontSize = 18.sp)
             }
+            // Updates for the whole app, and which parts' updates notify you.
+            UpdatesSection(NewsArea.ALL, onClose)
+            UpdateChoices()
             Text(
                 "CLOSE", style = Pro.Label.copy(color = Color.White, fontSize = 12.sp),
                 modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClose).padding(10.dp),

@@ -1704,6 +1704,14 @@ class ProCameraController(private val context: Context) {
                 if (!ok) toast("Couldn't add the timecode to this clip")
             }
             if (uri != null && CaptureExtras.slateOn) { val snap = st; io.execute { Slate.log(context, uri, snap, true) } }
+            // Editing proxy: a small copy for smooth playback in the video editor, as on the phone.
+            if (uri != null && CaptureExtras.proxy) {
+                val clip = withContext(Dispatchers.IO) { com.dronedirector.veyrocutpro.editor.ClipLoader.load(context, uri) }
+                if (clip != null) {
+                    val ps = com.dronedirector.veyrocutpro.editor.ProxySettings.load(context)
+                    com.dronedirector.veyrocutpro.editor.ProxyMaker.make(context, clip, ps.quality, ps.hevc, onProgress = {}) { o, _ -> if (o == null) toast("Couldn't make the editing proxy") }
+                }
+            }
             if (uri != null) r.wavFile?.takeIf { it.length() > 44 }?.let { toast("WAV saved next to the clip") }
             set { it.copy(processing = false, lastMedia = uri ?: it.lastMedia) }
             when {

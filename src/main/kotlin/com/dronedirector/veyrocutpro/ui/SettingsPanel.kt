@@ -172,7 +172,7 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                     ChoiceRow("Anti-flicker", listOf(0, 1, 2, 3), x.antiFlicker, { listOf("AUTO", "50 HZ", "60 HZ", "OFF")[it] }) { c.setAntiFlicker(it) }
                     Text("Stops banding under mains lights in photos and videos: 50 Hz in Europe, Africa, most of Asia; 60 Hz in the Americas.", color = Pro.Dim, fontSize = 12.sp)
                     ChoiceRow("Timecode", listOf(0, 1), x.timecode, { if (it == 0) "OFF" else "TIME OF DAY" }) { x.timecode = it; x.save(ctx) }
-                    if (false) ToggleRow("Editing proxy", "Makes a small copy of each clip after recording, so the video editor plays it smoothly straight away", x.proxy) { x.proxy = !x.proxy; x.save(ctx) }
+                    ToggleRow("Editing proxy", "Makes a small copy of each clip after recording, so the video editor plays it smoothly straight away", x.proxy) { x.proxy = !x.proxy; x.save(ctx) }
                     ToggleRow("Front + back camera", "Records this camera with a second camera on the PC in a corner, in one video", x.dualCam) { c.setDualCam(!x.dualCam) }
                     ChoiceRow("Pre-record", listOf(0, 3, 5, 10), x.preRecordSec, { if (it == 0) "OFF" else "${it}s" }) {
                         x.preRecordSec = it; x.save(ctx); c.refreshPreRecord()
@@ -567,6 +567,7 @@ fun SettingsPanel(s: CameraUiState, c: ProCameraController, onClose: () -> Unit)
                 }
                 GuideButton(GuideVariant.CAPTURE)
                 WhatsNewButton(NewsArea.CAPTURE, onClose)
+                UpdatesSection(NewsArea.CAPTURE, onClose)
                 TourButton()
                 LicensesButton()
                 PrivacyButton()

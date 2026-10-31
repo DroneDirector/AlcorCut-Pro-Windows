@@ -20,6 +20,8 @@ jobs:
       BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -90,12 +92,25 @@ jobs:
         with:
           name: AlcorCutPro-Windows-1.0.${{ github.run_number }}
           path: dist/*
+      - name: Release notes
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish
+        shell: bash
+        run: |
+          # The changelog lines added since the previous release (the app's update window shows them).
+          prev=$(git tag -l 'v1.0.*' --sort=-v:refname | head -1)
+          {
+            echo "## What's new in AlcorCut Pro for Windows 1.0.${BUILD_NUMBER}"
+            echo
+            if [ -n "$prev" ]; then git diff "$prev" HEAD -- CHANGELOG.md | grep '^+- ' | sed 's/^+//'; else grep '^- ' CHANGELOG.md; fi
+          } > notes.md
+          cat notes.md
       - name: Publish release
         if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: AlcorCut Pro for Windows 1.0.${{ github.run_number }}
+          body_path: notes.md
           files: dist/*
 
   classpath:

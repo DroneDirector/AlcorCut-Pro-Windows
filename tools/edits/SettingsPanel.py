@@ -1,6 +1,5 @@
 # Windows: phone-only settings are left out (no side buttons or Bluetooth headset routing on a PC).
 EDITS = [
-    ('                    ToggleRow("Editing proxy",', '                    if (false) ToggleRow("Editing proxy",'),
     ('"Records the back camera with the front camera in a corner, in one video (phones that can run both together)"', '"Records this camera with a second camera on the PC in a corner, in one video"'),
     ('                    ToggleRow("Bluetooth microphone",', '                    if (false) ToggleRow("Bluetooth microphone",'),
     ('                    Text("USB and wired microphones are used automatically when plugged in.", color = Pro.Dim, fontSize = 12.sp)',

@@ -128,6 +128,7 @@ fun main(args: Array<String>) {
                     com.dronedirector.veyrocutpro.ui.AudioHardwareNotice()
                     if (com.dronedirector.veyrocutpro.camera.CaptureKeys.show) com.dronedirector.veyrocutpro.editor.ShortcutsDialog(com.dronedirector.veyrocutpro.editor.CaptureShortcuts) { com.dronedirector.veyrocutpro.camera.CaptureKeys.show = false }
                     if (!com.dronedirector.veyrocutpro.ui.SafeMode.offer) com.dronedirector.veyrocutpro.ui.WhatsNewDialog()
+                    com.dronedirector.veyrocutpro.ui.UpdateHost()
                     com.dronedirector.veyrocutpro.ui.UndoBarHost()
                     com.dronedirector.veyrocutpro.ui.HelpTipHost()
                 }
