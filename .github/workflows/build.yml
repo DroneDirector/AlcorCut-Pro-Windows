@@ -108,7 +108,7 @@ jobs:
           {
             echo "## What's new in AlcorCut Pro for Windows 1.0.${BUILD_NUMBER}"
             echo
-            if [ -n "$prev" ]; then git diff "$prev" HEAD -- CHANGELOG.md | grep '^+- ' | sed 's/^+//'; else grep '^- ' CHANGELOG.md; fi
+            if [ -n "$prev" ]; then git diff "$prev" HEAD -- CHANGELOG.md | grep -E '^\+ *- ' | sed -e 's/^+//' -e 's/^ *- /- /'; else grep '^- ' CHANGELOG.md; fi
           } > notes.md
           cat notes.md
       - name: Publish release
