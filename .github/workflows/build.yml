@@ -50,6 +50,14 @@ jobs:
           7z x -y -opackaging/resources/windows/encoders enc/encoders-win.zip > /dev/null
           rm -f packaging/resources/windows/encoders/freeglut.dll packaging/resources/windows/encoders/encoders-log.txt
           ls -la packaging/resources/windows/encoders
+      - name: Graphics engine (ANGLE)
+        shell: bash
+        run: |
+          # OpenGL ES on DirectX (Google's ANGLE, BSD licence), as shipped in Electron's Windows build.
+          curl -sSL -o electron.zip https://github.com/electron/electron/releases/download/v33.2.0/electron-v33.2.0-win32-x64.zip
+          mkdir -p packaging/resources/windows/angle
+          7z e -y -opackaging/resources/windows/angle electron.zip libEGL.dll libGLESv2.dll > /dev/null
+          ls -la packaging/resources/windows/angle
       - name: Build installer
         shell: bash
         run: |
